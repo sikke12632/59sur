@@ -67,12 +67,12 @@
     <div id="homeScreen" class="screen-overlay">
         <h1>59서바이벌</h1>
         <div class="season-badge">✨ 난이도 선택 업데이트 ✨</div>
-        <div style="color:#aaa; font-size:14px; margin-bottom:8px;">※ 닉네임을 입력하면 데이터가 클라우드에 자동 저장됩니다.</div>
+        <div style="color:#aaa; font-size:14px; margin-bottom:8px;">※ 닉네임을 입력하면 자동 저장됩니다.</div>
         <input type="text" id="nicknameInput" placeholder="닉네임(아이디) 입력" maxlength="8">
         
         <div class="control-select">
-            <label><input type="radio" name="difficultyMode" value="normal"> <span>🟢 노말 모드 (이지)</span></label>
-            <label><input type="radio" name="difficultyMode" value="hard" checked> <span>🔥 하드 모드 (시즌2)</span></label>
+            <label><input type="radio" name="difficultyMode" value="normal"> <span>🟢 노말 모드 (기본)</span></label>
+            <label><input type="radio" name="difficultyMode" value="hard" checked> <span>🔥 하드 모드 (NEW!)</span></label>
         </div>
         
         <div class="control-select" style="margin-top:0;">
@@ -295,7 +295,7 @@
         selectedUlt = null; ultGauge = 0; activeUltTimer = 0; activeUltData = {}; ultFlash = 0;
         ultStats = { gaugeLevel: 0, damageLevel: 0, sizeLevel: 0 }; 
         ultMax = 200; 
-    }
+        isPaused = false; }
 
     function addUltGauge(amount) {
         if (selectedUlt && selectedUlt !== 'pending' && activeUltTimer <= 0 && ultEffects.length === 0) {
