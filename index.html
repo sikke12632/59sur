@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>59서바이벌 - 난이도 선택(노말/하드) 패치</title>
+    <title>59서바이벌 - 밸런스 패치판</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
     
@@ -66,8 +66,8 @@
 
     <div id="homeScreen" class="screen-overlay">
         <h1>59서바이벌</h1>
-        <div class="season-badge">✨ 난이도 선택 업데이트 ✨</div>
-        <div style="color:#aaa; font-size:14px; margin-bottom:8px;">※ 닉네임을 입력하면 자동 저장됩니다.</div>
+        <div class="season-badge">🛡️ 안정화 & 보상 개선 업데이트 🛡️</div>
+        <div style="color:#aaa; font-size:14px; margin-bottom:8px;">※ 닉네임을 입력하면 자동 저장됩니다. 특수문자는 자동 제거됩니다.</div>
         <input type="text" id="nicknameInput" placeholder="닉네임(아이디) 입력" maxlength="8">
         
         <div class="control-select">
@@ -78,6 +78,10 @@
         <div class="control-select" style="margin-top:0;">
             <label><input type="radio" name="controlMode" value="keyboard" checked> <span>⌨️ 키보드</span></label>
             <label><input type="radio" name="controlMode" value="mouse"> <span>🖱️ 마우스</span></label>
+        </div>
+        <div style="font-size:13px; color:#ddd; text-align:center; line-height:1.45; margin-top:5px; max-width:620px;">
+            적을 피하며 자동 공격으로 살아남으세요. 5레벨마다 보스가 나오고, 5레벨 이상부터 조각 보상이 지급됩니다.<br>
+            💖회복 · 💣같은 색 적 제거 · 🌀블랙홀 / 하드는 엘리트와 발광 보스가 등장합니다.
         </div>
         
         <div class="action-buttons">
@@ -190,6 +194,59 @@
     const COLORS = ['#FF3366', '#00E5FF', '#39FF14', '#FFD700', '#B026FF'];
     const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false };
 
+    // ===== 운영 안정화/밸런스 설정 =====
+    const BALANCE = {
+        // ===== 밸런스 패치 =====
+        // 노말: 너무 쉬운 문제 해결 → 적 수/보스 체력/중반 엘리트 소폭 추가
+        // 하드: 너무 어려운 문제 해결 → 적 수/엘리트 확률/충돌 피해/보스 발광 완화
+        maxEnemiesNormal: 140,
+        maxEnemiesHard: 95,
+        itemSpawnMsNormal: 14000,
+        itemSpawnMsHard: 12000,
+        hardRewardScoreUnit: 1800,
+        normalRewardScoreUnit: 900,
+        maxRewardBoxes: 10,
+        maxCharacterLevel: 5,
+        hardEnemyHpScale: 0.88,
+        normalEnemyHpScale: 1.12,
+        hardEliteHpScale: 0.72,
+        hardBossHpScale: 0.82,
+        normalBossHpScale: 0.90,
+        hardCollisionDamageCap: 35,
+        normalCollisionDamageCap: 55,
+
+        // ===== 무기/필살기 추가 밸런스 패치 =====
+        // 수호의검: 약하다는 피드백 반영 → 사거리/판정/피해/타격 주기 상향
+        orbitalRadius: 80,
+        orbitalHitRadius: 23,
+        orbitalDamageMultiplier: 1.35,
+        orbitalDamagePerSwordBonus: 0.15,
+        orbitalHitCooldownMs: 320,
+
+        // 화염방사: OP 피드백 반영 → 지속시간/범위/피해/넉백/요구 게이지 하향 조정
+        flameDurationMs: 1900,
+        flameRadius: 115,
+        flameBaseDamage: 0.065,
+        flameDamagePerUpgrade: 0.055,
+        flameKnockback: 0.75,
+        flameGaugeRequired: 240
+    };
+
+    let gameOverProcessed = false;
+
+    function getCleanNickname(raw) {
+        return String(raw || '').trim().replace(/[^0-9a-zA-Z가-힣_]/g, '').slice(0, 8);
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
     window.addEventListener('keydown', (e) => { 
         if (keys.hasOwnProperty(e.key)) keys[e.key] = true; 
         
@@ -295,6 +352,7 @@
         selectedUlt = null; ultGauge = 0; activeUltTimer = 0; activeUltData = {}; ultFlash = 0;
         ultStats = { gaugeLevel: 0, damageLevel: 0, sizeLevel: 0 }; 
         ultMax = 200; 
+        gameOverProcessed = false;
         isPaused = false; }
 
     function addUltGauge(amount) {
@@ -311,7 +369,7 @@
         if (selectedUlt === 'bomb') {
             ultEffects.push({ type: 'bomb', x: player.x, y: player.y, timer: 2000, maxTimer: 2000 });
         } else if (selectedUlt === 'flame') {
-            activeUltTimer = 2500; activeUltData = { angle: 0 };
+            activeUltTimer = BALANCE.flameDurationMs; activeUltData = { angle: 0 };
         } else if (selectedUlt === 'meteor') {
             activeUltTimer = 1500; activeUltData = { drops: 4, timer: 0 }; 
         }
@@ -346,7 +404,7 @@
         document.getElementById('currentStatsDisplay').innerHTML = ''; 
         const choices = [
             { id: 'bomb', icon: '💣', title: '오구 폭탄', desc: '설치 후 2초 뒤 폭발하여 화면 전체를 폭격합니다. (광역 3 피해)', apply() { selectedUlt = 'bomb'; ultMax = 200; } },
-            { id: 'flame', icon: '🔥', title: '불꽃 방사', desc: '2.5초간 거대한 불꽃을 뿜어냅니다.', apply() { selectedUlt = 'flame'; ultMax = 200; } },
+            { id: 'flame', icon: '🔥', title: '불꽃 방사', desc: '1.9초간 주변 적을 태웁니다. 범위와 피해량이 줄어든 대신 안정적입니다.', apply() { selectedUlt = 'flame'; ultMax = BALANCE.flameGaugeRequired; } },
             { id: 'meteor', icon: '🌠', title: '메테오', desc: '무작위 적을 향해 별똥별 4발을 떨어뜨립니다. (발당 5 피해)', apply() { selectedUlt = 'meteor'; ultMax = 200; } }
         ];
         renderModalOptions(choices);
@@ -359,7 +417,7 @@
         
         let curDmg = 0, nextDmg = 0;
         if (selectedUlt === 'bomb') { curDmg = 3 + ultStats.damageLevel * 3; nextDmg = curDmg + 3; }
-        else if (selectedUlt === 'flame') { curDmg = (0.1 + ultStats.damageLevel * 0.1).toFixed(2); nextDmg = (0.1 + (ultStats.damageLevel+1) * 0.1).toFixed(2); }
+        else if (selectedUlt === 'flame') { curDmg = (BALANCE.flameBaseDamage + ultStats.damageLevel * BALANCE.flameDamagePerUpgrade).toFixed(3); nextDmg = (BALANCE.flameBaseDamage + (ultStats.damageLevel+1) * BALANCE.flameDamagePerUpgrade).toFixed(3); }
         else if (selectedUlt === 'meteor') { curDmg = 5 + ultStats.damageLevel * 5; nextDmg = curDmg + 5; }
 
         let curGauge = Math.max(50, 200 - ultStats.gaugeLevel * 30);
@@ -407,7 +465,7 @@
             { id: 3, icon: '👟', title: isRabbitLucky ? '이동 속도 (대성공!)' : '이동 속도', val: (isRabbitLucky ? 1.2 : 0.6), get desc() { return `속도 +${this.val}`; }, apply() { player.speed += this.val; } },
             { id: 4, icon: '❤️', title: isBearLucky ? '체력 단련 (대성공!)' : '체력 단련', val: (isBearLucky ? 50 : 20), get desc() { return `최대 HP +${this.val}`; }, apply() { player.maxHp += this.val; player.hp = Math.min(player.maxHp, player.hp + this.val); } },
             { id: 5, icon: '✨', title: isChickLucky ? '다중 발사 (대성공!)' : '다중 발사', val: (isChickLucky ? 2 : 1), get desc() { return `탄환 수 +${this.val} (최대 12)`; }, apply() { weapons.multiShot = Math.min(12, weapons.multiShot + this.val); } },
-            { id: 6, icon: '🔄', title: isWolfLucky ? '수호의 검 (대성공!)' : '수호의 검', val: (isWolfLucky ? 2 : 1), get desc() { return `검 개수 +${this.val} (최대 10)`; }, apply() { weapons.orbitals = Math.min(10, weapons.orbitals + this.val); } },
+            { id: 6, icon: '🔄', title: isWolfLucky ? '수호의 검 (대성공!)' : '수호의 검', val: (isWolfLucky ? 2 : 1), get desc() { return `검 개수 +${this.val} / 근접 타격 강화`; }, apply() { weapons.orbitals = Math.min(10, weapons.orbitals + this.val); } },
             { id: 7, icon: '☄️', title: '관통탄', val: 1, desc: '관통 +1회 (최대 8)', apply() { weapons.pierce = Math.min(8, weapons.pierce + 1); } },
             { id: 8, icon: '👹', title: '거인 사냥꾼', val: 0.5, desc: '보스 피해 +50%', apply() { weapons.bossDamageMult += 0.5; } }
         ];
@@ -448,10 +506,10 @@
                 let equipBtn = isOwned ? (isEquipped ? `<button class="buy-btn is-equipped" style="margin-bottom:6px;">장착 중</button>` : `<button class="buy-btn can-equip" style="margin-bottom:6px;" onclick="equipChar('${char.id}')">장착하기</button>`) : '';
                 html += equipBtn;
 
-                let reqCost = (charLvl + 1) * 5; 
+                let reqCost = charLvl === 0 ? 5 : 5 + (charLvl * 3); 
                 let canUpgrade = frags >= reqCost;
                 
-                if (charLvl < 10) {
+                if (charLvl < BALANCE.maxCharacterLevel) {
                     let btnClass = canUpgrade ? 'can-buy' : '';
                     let disabled = canUpgrade ? '' : 'disabled style="background:#555; color:#ccc;"';
                     let btnText = isOwned ? `Lv.${charLvl+1} 강화 (${frags}/${reqCost})` : `영입하기 (${frags}/${reqCost})`;
@@ -477,15 +535,8 @@
 
     window.equipChar = (id) => { equippedCharId = id; saveUserData(); renderStore(); };
     
-    window.deleteRecord = (docId, collectionName) => {
-        if (confirm("정말 이 기록을 랭킹에서 영구 삭제하시겠습니까?")) {
-            db.collection(collectionName).doc(docId).delete().then(() => {
-                alert("기록이 성공적으로 삭제되었습니다!");
-            }).catch((error) => {
-                console.error("삭제 실패:", error);
-                alert("삭제 중 오류가 발생했습니다.");
-            });
-        }
+    window.deleteRecord = () => {
+        alert("보안상 게임 화면에서 직접 삭제는 막아두었습니다. 기록 삭제는 Firebase 콘솔에서 선생님이 직접 해주세요.");
     };
 
     function createParticles(x, y, color) { 
@@ -500,6 +551,7 @@
     function useBombItem() { 
         if (enemies.length === 0) return; 
         const targetColor = COLORS[Math.floor(Math.random() * COLORS.length)]; 
+        let killedCount = 0;
         for (let i = enemies.length - 1; i >= 0; i--) { 
             if (enemies[i].color === targetColor && !enemies[i].isBoss && !enemies[i].isElite) { 
                 const e = enemies[i]; 
@@ -510,8 +562,10 @@
                 exp += e.maxHp; // 경험치는 동일하게
                 
                 createParticles(e.x, e.y, e.color); enemies.splice(i, 1); 
+                killedCount++;
             } 
         } 
+        if (killedCount > 0) checkLevelUp();
         shakeAmount = 15; 
     }
 
@@ -520,18 +574,19 @@
         if (Math.random() < 0.5) { x = Math.random() < 0.5 ? -50 : canvas.width + 50; y = Math.random() * canvas.height; } 
         else { x = Math.random() * canvas.width; y = Math.random() < 0.5 ? -50 : canvas.height + 50; }
         
-        let hellScale = currentDifficulty === 'hard' && level > 25 ? Math.pow(1.08, level - 25) : 1;
+        let hellScale = currentDifficulty === 'hard' && level > 30 ? Math.pow(1.045, level - 30) : 1;
 
         if (isBoss) {
             const isEliteBoss = level % 10 === 0; 
             let totalHp = Math.floor((isEliteBoss ? level * 16 : level * 9) * hellScale);
             
-            // 🔥 노말 모드 보스는 체력 70% 너프
             if (currentDifficulty === 'normal') {
-                totalHp = Math.floor(totalHp * 0.7);
+                totalHp = Math.floor(totalHp * BALANCE.normalBossHpScale);
+            } else {
+                totalHp = Math.floor(totalHp * BALANCE.hardBossHpScale);
             }
 
-            const bSpeed = isEliteBoss ? 1.4 : 0.9;
+            const bSpeed = currentDifficulty === 'hard' ? (isEliteBoss ? 1.18 : 0.82) : (isEliteBoss ? 1.45 : 0.98);
             enemies.push({ 
                 x, y, size: isEliteBoss ? 45 : 35, shape: 'square', color: '#2D00F7', 
                 shield: totalHp - 8, hp: 8, maxHp: totalHp, speed: bSpeed, baseSpeed: bSpeed, 
@@ -541,18 +596,21 @@
         } else {
             let currentElites = enemies.filter(e => e.isElite).length;
             
-            // 🔥 노말 모드에서는 엘리트 등장 안함
+            // 노말도 중반부터 약한 엘리트가 나오게 하고, 하드는 엘리트 확률/동시 수를 완화
             let isElite = false;
             if (currentDifficulty === 'hard') {
-                isElite = level > 5 && currentElites < 5 && Math.random() < Math.min(0.15, 0.02 + (level - 5) * 0.005);
+                isElite = level > 7 && currentElites < 3 && Math.random() < Math.min(0.08, 0.015 + (level - 7) * 0.0025);
+            } else {
+                isElite = level > 12 && currentElites < 2 && Math.random() < Math.min(0.06, 0.01 + (level - 12) * 0.002);
             }
             
             if (isElite) {
-                let types = ['charger', 'mage', 'glutton'];
-                if (level >= 20) types.push('bomber', 'flamer', 'meteor', 'void');
+                let types = currentDifficulty === 'hard' ? ['charger', 'mage', 'glutton'] : ['charger', 'glutton'];
+                if (currentDifficulty === 'hard' && level >= 25) types.push('bomber', 'flamer');
+                if (currentDifficulty === 'hard' && level >= 35) types.push('meteor', 'void');
                 
                 const eType = types[Math.floor(Math.random() * types.length)];
-                const totalHp = Math.floor(level * 7.5 * hellScale); 
+                const totalHp = Math.max(8, Math.floor(level * 7.5 * hellScale * (currentDifficulty === 'hard' ? BALANCE.hardEliteHpScale : 0.85))); 
                 
                 const eColor = eType === 'charger' ? '#FFFFFF' : 
                              (eType === 'mage' ? '#000000' : 
@@ -569,7 +627,8 @@
                 });
             } else {
                 let hp = (level <= 5) ? Math.floor(Math.random() * 3) + 1 : Math.floor((Math.random() * (2 + level * 1.8)) * hellScale) + 1;
-                let baseSpeed = 0.8 * Math.pow(1.02, Math.min(level, 50)); 
+                hp = Math.max(1, Math.floor(hp * (currentDifficulty === 'hard' ? BALANCE.hardEnemyHpScale : BALANCE.normalEnemyHpScale)));
+                let baseSpeed = (currentDifficulty === 'hard' ? 0.72 : 0.86) * Math.pow(currentDifficulty === 'hard' ? 1.016 : 1.022, Math.min(level, 50)); 
                 enemies.push({ x, y, size: 16, shape: SHAPES[Math.floor(Math.random() * SHAPES.length)], color: COLORS[Math.floor(Math.random() * COLORS.length)], hp, maxHp: hp, speed: baseSpeed + Math.random() * 0.4, isBoss: false, invuln: 0 });
             }
         }
@@ -599,11 +658,14 @@
 
     function update(deltaTime) {
         if (isPaused || !isPlaying) return;
-        itemTimer += deltaTime; if (itemTimer > 15000) { spawnItem(); itemTimer = 0; }
+        const frameScale = Math.min(3, Math.max(0.25, deltaTime / 16.67));
+        itemTimer += deltaTime; if (itemTimer > (currentDifficulty === 'hard' ? BALANCE.itemSpawnMsHard : BALANCE.itemSpawnMsNormal)) { spawnItem(); itemTimer = 0; }
         enemyTimer += deltaTime;
 
-        const MAX_ENEMIES = 120; 
-        let spawnDelay = Math.floor(((level <= 5) ? 650 : Math.max(300, 1100 - (level * 60))) / 1.5);
+        const MAX_ENEMIES = currentDifficulty === 'hard' ? BALANCE.maxEnemiesHard : BALANCE.maxEnemiesNormal; 
+        let spawnDelay = currentDifficulty === 'hard'
+            ? Math.floor((level <= 5 ? 900 : Math.max(480, 1250 - (level * 35))))
+            : Math.floor((level <= 5 ? 560 : Math.max(260, 980 - (level * 55))));
         
         if (enemyTimer > spawnDelay && enemies.length < MAX_ENEMIES) { 
             spawnEnemy(); 
@@ -635,7 +697,7 @@
 
         for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
             let ep = enemyProjectiles[i];
-            ep.x += ep.vx; ep.y += ep.vy;
+            ep.x += ep.vx * frameScale; ep.y += ep.vy * frameScale;
             if (Math.hypot(player.x - ep.x, player.y - ep.y) < player.radius + ep.radius) {
                 if (Math.random() >= player.evasion) {
                     player.hp -= ep.damage; damageFlash = 0.4; shakeAmount = 8;
@@ -674,8 +736,8 @@
             const dist = Math.hypot(bh.x - player.x, bh.y - player.y);
             if (dist < bh.radius) {
                 const a = Math.atan2(bh.y - player.y, bh.x - player.x);
-                player.x += Math.cos(a) * bh.pullStrength;
-                player.y += Math.sin(a) * bh.pullStrength;
+                player.x += Math.cos(a) * bh.pullStrength * frameScale;
+                player.y += Math.sin(a) * bh.pullStrength * frameScale;
                 if (dist < 40) {
                     if (Math.random() >= player.evasion) {
                         player.hp -= bh.tickDamage; damageFlash = 0.1;
@@ -696,15 +758,15 @@
                     particles.push({ x: player.x, y: player.y, vx: Math.cos(a)*7*sizeMod, vy: Math.sin(a)*7*sizeMod, size: (Math.random()*15+10)*sizeMod, color: (Math.random()>0.5 ? '#FF3300' : '#FF9900'), life: 1.0, decay: 0.04 });
                 }
                 enemies.forEach(e => {
-                    if (Math.hypot(player.x - e.x, player.y - e.y) < 150 * sizeMod) {
+                    if (Math.hypot(player.x - e.x, player.y - e.y) < BALANCE.flameRadius * sizeMod) {
                         const isInvincible = e.isBoss && e.patternState === 'enraged';
                         if (!isInvincible) {
-                            let dmg = (0.1 + (ultStats.damageLevel * 0.1)) * (deltaTime/16); 
+                            let dmg = (BALANCE.flameBaseDamage + (ultStats.damageLevel * BALANCE.flameDamagePerUpgrade)) * (deltaTime/16); 
                             if ((e.isBoss || e.isElite) && (e.shield || 0) > 0) { e.shield -= dmg; if (e.shield < 0) { e.hp += e.shield; e.shield = 0; } } 
                             else { e.hp -= dmg; }
                         }
                         const angle = Math.atan2(e.y - player.y, e.x - player.x);
-                        e.x += Math.cos(angle) * 1.5; e.y += Math.sin(angle) * 1.5;
+                        e.x += Math.cos(angle) * BALANCE.flameKnockback * frameScale; e.y += Math.sin(angle) * BALANCE.flameKnockback * frameScale;
                     }
                 });
             } else if (selectedUlt === 'meteor') {
@@ -777,20 +839,20 @@
             }
             attackTimer = 0; 
         }
-        weapons.orbitalAngle += 0.05;
+        weapons.orbitalAngle += 0.05 * frameScale;
 
         if (currentControlType === 'keyboard') {
-            if ((keys.ArrowUp || keys.w) && player.y > 20) player.y -= player.speed;
-            if ((keys.ArrowDown || keys.s) && player.y < canvas.height - 20) player.y += player.speed;
-            if ((keys.ArrowLeft || keys.a) && player.x > 20) player.x -= player.speed;
-            if ((keys.ArrowRight || keys.d) && player.x < canvas.width - 20) player.x += player.speed;
+            if ((keys.ArrowUp || keys.w) && player.y > 20) player.y -= player.speed * frameScale;
+            if ((keys.ArrowDown || keys.s) && player.y < canvas.height - 20) player.y += player.speed * frameScale;
+            if ((keys.ArrowLeft || keys.a) && player.x > 20) player.x -= player.speed * frameScale;
+            if ((keys.ArrowRight || keys.d) && player.x < canvas.width - 20) player.x += player.speed * frameScale;
             targetX = player.x; targetY = player.y; 
         } 
         else if (currentControlType === 'mouse') {
             const dist = Math.hypot(targetX - player.x, targetY - player.y);
-            if (dist > player.speed) {
-                player.x += (targetX - player.x) / dist * player.speed;
-                player.y += (targetY - player.y) / dist * player.speed;
+            if (dist > player.speed * frameScale) {
+                player.x += (targetX - player.x) / dist * player.speed * frameScale;
+                player.y += (targetY - player.y) / dist * player.speed * frameScale;
             }
         }
         player.x = Math.max(20, Math.min(canvas.width - 20, player.x));
@@ -798,8 +860,8 @@
 
         for (let i = particles.length - 1; i >= 0; i--) {
             let p = particles[i];
-            p.x += p.vx;
-            p.y += p.vy;
+            p.x += p.vx * frameScale;
+            p.y += p.vy * frameScale;
             p.life -= (p.decay || 0.02);
             if (p.life <= 0) particles.splice(i, 1);
         }
@@ -821,7 +883,7 @@
         }
 
         for (let i = projectiles.length - 1; i >= 0; i--) {
-            const p = projectiles[i]; p.x += p.velocity.x; p.y += p.velocity.y;
+            const p = projectiles[i]; p.x += p.velocity.x * frameScale; p.y += p.velocity.y * frameScale;
             if (p.x < -50 || p.x > canvas.width + 50 || p.y < -50 || p.y > canvas.height + 50) { projectiles.splice(i, 1); continue; }
             for (let j = enemies.length - 1; j >= 0; j--) {
                 const e = enemies[j];
@@ -838,7 +900,7 @@
                         if (e.hp <= 0) { 
                             // 🔥 하드 모드 보스는 20레벨 발광
                             if (currentDifficulty === 'hard' && e.isBoss && e.bossLevel >= 20 && !e.berserkUsed) {
-                                e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 6000; e.shield = 0;
+                                e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 4200; e.shield = 0;
                             } else {
                                 handleEnemyDeath(e, j, enemies); break; 
                             }
@@ -856,7 +918,7 @@
                 if (currentDifficulty === 'hard' && e.berserk) {
                     e.berserkTimer -= deltaTime;
                     e.patternState = 'enraged'; 
-                    e.speed = e.baseSpeed * 3.5; 
+                    e.speed = e.baseSpeed * 2.3; 
                     createParticles(e.x + (Math.random()-0.5)*e.size, e.y + (Math.random()-0.5)*e.size, '#FF0000'); 
                     
                     if (e.berserkTimer <= 0) {
@@ -868,13 +930,13 @@
                     e.patternTimer -= deltaTime;
                     if (e.patternTimer <= 0) {
                         // 🔥 노말은 무적패턴 지속 짧고 주기 긺
-                        let normalDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 3000 : 5000;
-                        let enragedDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 3000 : 2000;
+                        let normalDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 4200 : 4200;
+                        let enragedDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 1800 : 2400;
                         
                         if (e.patternState === 'normal') {
                             e.patternState = 'enraged';
                             e.patternTimer = enragedDur;
-                            e.speed = e.baseSpeed * 2.5;
+                            e.speed = e.baseSpeed * (currentDifficulty === 'hard' ? 1.8 : 2.2);
                         } else {
                             e.patternState = 'normal';
                             e.patternTimer = normalDur;
@@ -892,8 +954,8 @@
                         if (e.actionTimer <= 0) { e.subState = 'dash'; e.actionTimer = 800; } 
                     } else if (e.subState === 'dash') {
                         e.actionTimer -= deltaTime;
-                        e.x += Math.cos(e.angle) * e.speed * 4;
-                        e.y += Math.sin(e.angle) * e.speed * 4;
+                        e.x += Math.cos(e.angle) * e.speed * 4 * frameScale;
+                        e.y += Math.sin(e.angle) * e.speed * 4 * frameScale;
                         if (e.actionTimer <= 0) { e.subState = 'aim'; e.actionTimer = 2000; }
                     }
                 } else if (e.eliteType === 'mage') {
@@ -904,15 +966,15 @@
                     }
                     const dist = Math.hypot(player.x - e.x, player.y - e.y);
                     const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                    if (dist < 200) { e.x -= Math.cos(angle) * e.speed * 0.8; e.y -= Math.sin(angle) * e.speed * 0.8; } 
-                    else { e.x += Math.cos(angle) * e.speed * 0.5; e.y += Math.sin(angle) * e.speed * 0.5; }
+                    if (dist < 200) { e.x -= Math.cos(angle) * e.speed * 0.8 * frameScale; e.y -= Math.sin(angle) * e.speed * 0.8 * frameScale; } 
+                    else { e.x += Math.cos(angle) * e.speed * 0.5 * frameScale; e.y += Math.sin(angle) * e.speed * 0.5 * frameScale; }
                 } else if (e.eliteType === 'glutton') {
                     if (items.length > 0) {
                         let nearest = items[0], minDist = Math.hypot(items[0].x - e.x, items[0].y - e.y);
                         items.forEach(it => { let d = Math.hypot(it.x - e.x, it.y - e.y); if(d < minDist) { minDist = d; nearest = it; } });
                         const angle = Math.atan2(nearest.y - e.y, nearest.x - e.x);
-                        e.x += Math.cos(angle) * e.speed * 1.8; 
-                        e.y += Math.sin(angle) * e.speed * 1.8;
+                        e.x += Math.cos(angle) * e.speed * 1.8 * frameScale; 
+                        e.y += Math.sin(angle) * e.speed * 1.8 * frameScale;
                         if (minDist < e.size + nearest.radius) {
                             items.splice(items.indexOf(nearest), 1);
                             e.shield += 50; e.size = Math.min(e.size + 8, 60); e.speed += 0.2;
@@ -920,7 +982,7 @@
                         }
                     } else {
                         const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                        e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed;
+                        e.x += Math.cos(angle) * e.speed * frameScale; e.y += Math.sin(angle) * e.speed * frameScale;
                     }
                 } 
                 else if (e.eliteType === 'flamer') {
@@ -933,7 +995,7 @@
                         e.actionTimer = 3000;
                     }
                     const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                    e.x += Math.cos(angle) * e.speed * 0.7; e.y += Math.sin(angle) * e.speed * 0.7;
+                    e.x += Math.cos(angle) * e.speed * 0.7 * frameScale; e.y += Math.sin(angle) * e.speed * 0.7 * frameScale;
                 } else if (e.eliteType === 'bomber') {
                     e.actionTimer -= deltaTime;
                     if (e.actionTimer <= 0) {
@@ -942,7 +1004,7 @@
                     }
                     const dist = Math.hypot(player.x - e.x, player.y - e.y);
                     const angle = Math.atan2(e.y - player.y, e.x - player.x);
-                    if (dist < 300) { e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed; }
+                    if (dist < 300) { e.x += Math.cos(angle) * e.speed * frameScale; e.y += Math.sin(angle) * e.speed * frameScale; }
                 } else if (e.eliteType === 'meteor') {
                     e.actionTimer -= deltaTime;
                     if (e.actionTimer <= 0) {
@@ -952,7 +1014,7 @@
                     const dist = Math.hypot(player.x - e.x, player.y - e.y);
                     if (dist > 400) {
                         const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                        e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed;
+                        e.x += Math.cos(angle) * e.speed * frameScale; e.y += Math.sin(angle) * e.speed * frameScale;
                     }
                 } else if (e.eliteType === 'void') {
                     e.actionTimer -= deltaTime;
@@ -961,19 +1023,19 @@
                         e.actionTimer = 6000;
                     }
                     const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                    e.x += Math.cos(angle) * e.speed * 0.5; e.y += Math.sin(angle) * e.speed * 0.5;
+                    e.x += Math.cos(angle) * e.speed * 0.5 * frameScale; e.y += Math.sin(angle) * e.speed * 0.5 * frameScale;
                 }
             } else {
                 const angle = Math.atan2(player.y - e.y, player.x - e.x);
-                e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed;
+                e.x += Math.cos(angle) * e.speed * frameScale; e.y += Math.sin(angle) * e.speed * frameScale;
             }
 
             blackHoles.forEach(bh => {
                 const dist = Math.hypot(bh.x - e.x, bh.y - e.y);
                 if (dist < bh.radius) {
                     const a = Math.atan2(bh.y - e.y, bh.x - e.x);
-                    e.x += Math.cos(a) * bh.pullStrength;
-                    e.y += Math.sin(a) * bh.pullStrength;
+                    e.x += Math.cos(a) * bh.pullStrength * frameScale;
+                    e.y += Math.sin(a) * bh.pullStrength * frameScale;
                     if (dist < 60) {
                         if (e.shield > 0) { e.shield -= bh.tickDamage; if(e.shield < 0) { e.hp += e.shield; e.shield = 0; } } 
                         else { e.hp -= bh.tickDamage; }
@@ -983,24 +1045,24 @@
 
             if (weapons.orbitals > 0 && (e.invuln || 0) <= 0) {
                 for(let o=0; o<weapons.orbitals; o++) {
-                    const ox = player.x + Math.cos(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * 65;
-                    const oy = player.y + Math.sin(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * 65;
-                    if (Math.hypot(ox - e.x, oy - e.y) < 15 + e.size) {
+                    const ox = player.x + Math.cos(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * BALANCE.orbitalRadius;
+                    const oy = player.y + Math.sin(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * BALANCE.orbitalRadius;
+                    if (Math.hypot(ox - e.x, oy - e.y) < BALANCE.orbitalHitRadius + e.size) {
                         const isInvincible = e.isBoss && e.patternState === 'enraged';
                         if (!isInvincible) {
-                            let d = weapons.damage * (e.isBoss ? weapons.bossDamageMult : 1);
+                            let d = (weapons.damage * BALANCE.orbitalDamageMultiplier + weapons.orbitals * BALANCE.orbitalDamagePerSwordBonus) * (e.isBoss ? weapons.bossDamageMult : 1);
                             if ((e.isBoss || e.isElite) && (e.shield || 0) > 0) { e.shield -= d; if (e.shield < 0) { e.hp += e.shield; e.shield = 0; } } 
                             else { e.hp -= d; }
                             addUltGauge(d); 
                         }
-                        e.invuln = 500; break;
+                        e.invuln = BALANCE.orbitalHitCooldownMs; break;
                     }
                 }
             }
             
             if (e.hp <= 0) { 
                 if (currentDifficulty === 'hard' && e.isBoss && e.bossLevel >= 20 && !e.berserkUsed) {
-                    e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 6000; e.shield = 0;
+                    e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 4200; e.shield = 0;
                 } else {
                     handleEnemyDeath(e, i, enemies); continue; 
                 }
@@ -1009,8 +1071,8 @@
             if (e.invuln > 0) e.invuln -= deltaTime;
             
             if (Math.hypot(player.x - e.x, player.y - e.y) < player.radius + e.size) {
-                let collisionDmg = e.hp;
-                if (currentDifficulty === 'hard' && e.berserk) collisionDmg = 20; 
+                let collisionDmg = Math.min(e.hp, currentDifficulty === 'hard' ? BALANCE.hardCollisionDamageCap : BALANCE.normalCollisionDamageCap);
+                if (currentDifficulty === 'hard' && e.berserk) collisionDmg = 16; 
                 
                 if (Math.random() >= player.evasion) {
                     player.hp -= collisionDmg; damageFlash = 0.4; shakeAmount = 10;
@@ -1028,7 +1090,7 @@
                 }
             }
         }
-        if (shakeAmount > 0) shakeAmount *= 0.9; if (damageFlash > 0) damageFlash -= 0.02;
+        if (shakeAmount > 0) shakeAmount *= Math.pow(0.9, frameScale); if (damageFlash > 0) damageFlash -= 0.02 * frameScale;
     }
 
     function checkLevelUp() {
@@ -1103,13 +1165,13 @@
 
         if (activeUltTimer > 0 && selectedUlt === 'flame') {
             ctx.save(); ctx.translate(player.x, player.y); ctx.rotate(activeUltData.angle);
-            ctx.beginPath(); ctx.arc(0, 0, 150 * sizeMod, 0, Math.PI*2);
+            ctx.beginPath(); ctx.arc(0, 0, BALANCE.flameRadius * sizeMod, 0, Math.PI*2);
             ctx.fillStyle = 'rgba(255, 100, 0, 0.15)'; ctx.fill();
             ctx.strokeStyle = 'rgba(255, 100, 0, 0.5)'; ctx.lineWidth = 2; ctx.stroke();
             ctx.fillStyle = 'rgba(255, 153, 51, 0.3)';
-            ctx.beginPath(); ctx.arc(0, 0, 140 * sizeMod, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 0, (BALANCE.flameRadius - 10) * sizeMod, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#FF3366';
-            ctx.fillRect(-140 * sizeMod, -10, 280 * sizeMod, 20); ctx.fillRect(-10, -140 * sizeMod, 20, 280 * sizeMod);
+            ctx.fillRect(-(BALANCE.flameRadius - 10) * sizeMod, -10, (BALANCE.flameRadius - 10) * 2 * sizeMod, 20); ctx.fillRect(-10, -(BALANCE.flameRadius - 10) * sizeMod, 20, (BALANCE.flameRadius - 10) * 2 * sizeMod);
             ctx.restore();
         }
 
@@ -1220,9 +1282,9 @@
 
         if (weapons.orbitals > 0) {
             ctx.fillStyle = '#39FF14'; for(let o=0; o<weapons.orbitals; o++) {
-                const ox = player.x + Math.cos(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * 70;
-                const oy = player.y + Math.sin(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * 70;
-                ctx.beginPath(); ctx.arc(ox, oy, 10, 0, Math.PI*2); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke();
+                const ox = player.x + Math.cos(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * BALANCE.orbitalRadius;
+                const oy = player.y + Math.sin(weapons.orbitalAngle + (o * (Math.PI*2 / weapons.orbitals))) * BALANCE.orbitalRadius;
+                ctx.beginPath(); ctx.arc(ox, oy, 13, 0, Math.PI*2); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke();
             }
         }
         
@@ -1246,9 +1308,11 @@
         ctx.fillStyle = '#39FF14'; ctx.fillRect(0, canvas.height - 15, canvas.width * (exp / maxExp), 15);
     }
 
-    function gameLoop(timestamp) { if (!isPlaying) return; const deltaTime = timestamp - (lastTime || timestamp); lastTime = timestamp; update(deltaTime); draw(); animationFrameId = requestAnimationFrame(gameLoop); }
+    function gameLoop(timestamp) { if (!isPlaying) return; const deltaTime = Math.min(50, timestamp - (lastTime || timestamp)); lastTime = timestamp; update(deltaTime); draw(); animationFrameId = requestAnimationFrame(gameLoop); }
     
     function gameOver() {
+        if (gameOverProcessed) return;
+        gameOverProcessed = true;
         isPlaying = false; cancelAnimationFrame(animationFrameId);
         quitBtn.style.display = 'none'; 
         
@@ -1257,8 +1321,9 @@
         if (level < 5) {
             earnedHTML = "<div style='color:#ccc; font-size:24px; margin-top:10px;'>5레벨 도달 실패... 보상 없음 😢</div><div style='font-size:16px; color:#aaa; margin-top:5px;'>최소 5레벨을 넘겨야 랜덤 조각 상자가 지급됩니다.</div>";
         } else {
-            let calcBoxes = 1 + Math.floor(score / 2000);
-            let totalBoxes = Math.min(10, calcBoxes);
+            const rewardUnit = currentDifficulty === 'hard' ? BALANCE.hardRewardScoreUnit : BALANCE.normalRewardScoreUnit;
+            let calcBoxes = 1 + Math.floor(score / rewardUnit);
+            let totalBoxes = Math.min(BALANCE.maxRewardBoxes, calcBoxes);
             
             let fragCounts = {};
             let availableChars = ['dog', 'cat', 'rabbit', 'bear', 'chick', 'wolf'];
@@ -1287,8 +1352,18 @@
         
         if (firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("여기에")) {
             const collectionName = currentDifficulty === 'hard' ? "scores_s2" : "scores_5_9";
-            db.collection(collectionName).add({
-                name: currentNickname, score: score, level: level, timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            const scoreData = {
+                name: currentNickname,
+                score: Number(score) || 0,
+                level: Number(level) || 1,
+                mode: currentDifficulty,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            const scoreRef = db.collection(collectionName).doc(currentNickname);
+            scoreRef.get().then((doc) => {
+                if (!doc.exists || (Number(doc.data().score) || 0) < scoreData.score) {
+                    return scoreRef.set(scoreData, { merge: true });
+                }
             }).catch((error) => console.error("점수 저장 실패:", error));
         }
 
@@ -1298,35 +1373,27 @@
     }
 
     function updateHomeUI() {
-        const isAdmin = document.getElementById('nicknameInput').value === '식이쌤관리자';
         const selectedDiff = document.querySelector('input[name="difficultyMode"]:checked').value;
-        
-        // 난이도에 따른 랭킹판 제목과 데이터 선택
         document.getElementById('homeLbTitle').innerText = selectedDiff === 'hard' ? '🏆 하드 모드 명예의 전당 (Top 5) 🏆' : '🏆 노말 모드 명예의 전당 (Top 5) 🏆';
         document.getElementById('fullLbTitle').innerText = selectedDiff === 'hard' ? '🏆 하드 모드 전체 랭킹 🏆' : '🏆 노말 모드 전체 랭킹 🏆';
         
         const currentLB = selectedDiff === 'hard' ? leaderboardsHard : leaderboardsNormal;
-        const collName = selectedDiff === 'hard' ? 'scores_s2' : 'scores_5_9';
+        const validLB = currentLB
+            .filter(e => e && typeof e.name !== 'undefined' && typeof e.score !== 'undefined')
+            .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
 
-        const top5 = currentLB.slice(0, 5);
+        const top5 = validLB.slice(0, 5);
         const homeHtml = top5.length ? top5.map((e, i) => `
             <li style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                <span>${i + 1}. ${e.name}</span> 
-                <div>
-                    <span style="color:#FFD700">${e.score}점</span>
-                    ${isAdmin && e.id ? `<button onclick="deleteRecord('${e.id}', '${collName}')" style="margin-left:10px; background:#FF3366; color:white; border:none; border-radius:5px; cursor:pointer; font-family:'Jua'; padding:2px 8px;">삭제</button>` : ''}
-                </div>
+                <span>${i + 1}. ${escapeHtml(e.name)}</span> 
+                <div><span style="color:#FFD700">${Number(e.score) || 0}점</span></div>
             </li>`).join('') : '<li>기록 없음</li>';
-            
         document.getElementById('homeLeaderboard').innerHTML = homeHtml;
 
-        const fullHtml = currentLB.length ? currentLB.map((e, i) => `
+        const fullHtml = validLB.length ? validLB.map((e, i) => `
             <li style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid rgba(255,255,255,0.1); padding: 5px 0;">
-                <span><strong style="color:${i<3?'#FF3366':'#00E5FF'}">${i + 1}위.</strong> ${e.name} (Lv.${e.level})</span> 
-                <div>
-                    <span style="color:#FFD700">${e.score}점</span>
-                    ${isAdmin && e.id ? `<button onclick="deleteRecord('${e.id}', '${collName}')" style="margin-left:10px; background:#FF3366; color:white; border:none; border-radius:5px; cursor:pointer; font-family:'Jua'; padding:2px 8px;">삭제</button>` : ''}
-                </div>
+                <span><strong style="color:${i<3?'#FF3366':'#00E5FF'}">${i + 1}위.</strong> ${escapeHtml(e.name)} (Lv.${Number(e.level) || 1})</span> 
+                <div><span style="color:#FFD700">${Number(e.score) || 0}점</span></div>
             </li>`).join('') : '<li>기록 없음</li>';
 
         const fullLeaderboardEl = document.getElementById('fullLeaderboard');
@@ -1334,12 +1401,14 @@
     }
 
     document.getElementById('nicknameInput').addEventListener('input', (e) => {
-        localStorage.setItem('vamp_last_nickname_s2', e.target.value.trim());
+        const cleaned = getCleanNickname(e.target.value);
+        if (e.target.value !== cleaned) e.target.value = cleaned;
+        localStorage.setItem('vamp_last_nickname_s2', cleaned);
         updateHomeUI();
     });
 
     document.getElementById('startBtn').onclick = async () => { 
-        let nick = document.getElementById('nicknameInput').value.trim();
+        let nick = getCleanNickname(document.getElementById('nicknameInput').value);
         if (!nick) return alert("❌ 닉네임(아이디)을 먼저 입력해주세요!\n데이터가 클라우드에 자동 저장됩니다.");
         
         currentNickname = nick;
@@ -1351,11 +1420,6 @@
         await syncUserData(currentNickname);
         btn.innerText = originalText;
         
-        if (currentNickname === 'test99') { 
-            ['dog','cat','rabbit','bear','chick','wolf'].forEach(c => charFragments[c] = (charFragments[c]||0) + 100);
-            saveUserData(); 
-        }
-
         const selectedControl = document.querySelector('input[name="controlMode"]:checked');
         if (selectedControl) currentControlType = selectedControl.value;
 
@@ -1374,7 +1438,7 @@
     };
     
     document.getElementById('openStoreBtn').onclick = async () => { 
-        let nick = document.getElementById('nicknameInput').value.trim();
+        let nick = getCleanNickname(document.getElementById('nicknameInput').value);
         if (!nick) return alert("❌ 닉네임(아이디)을 먼저 입력해주세요!\n데이터가 클라우드에 자동 저장됩니다.");
         
         currentNickname = nick;
