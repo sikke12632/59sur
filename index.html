@@ -153,6 +153,7 @@
     
     let leaderboardsNormal = []; 
     let leaderboardsHard = []; 
+    let leaderboardErrors = { normal: null, hard: null }; 
 
     const savedNickname = localStorage.getItem('vamp_last_nickname_s2');
     if (savedNickname) {
@@ -172,6 +173,7 @@
     let isPlaying = false, isPaused = false, animationFrameId;
     let score = 0, level = 1, exp = 0, maxExp = 12; 
     let lastTime = 0, attackTimer = 0, enemyTimer = 0, itemTimer = 0;
+    let eliteSpawnCounter = 0;
     let shakeAmount = 0, damageFlash = 0, particles = [], items = [], projectiles = [], enemies = [];
     let dangerZones = [], blackHoles = []; 
     let enemyProjectiles = [], enemyUltEffects = [], enemyBlackHoles = [];
@@ -200,20 +202,25 @@
         // 노말: 너무 쉬운 문제 해결 → 적 수/보스 체력/중반 엘리트 소폭 추가
         // 하드: 너무 어려운 문제 해결 → 적 수/엘리트 확률/충돌 피해/보스 발광 완화
         maxEnemiesNormal: 140,
-        maxEnemiesHard: 95,
+        maxEnemiesHard: 115,
         itemSpawnMsNormal: 14000,
-        itemSpawnMsHard: 12000,
+        itemSpawnMsHard: 13500,
         hardRewardScoreUnit: 1800,
         normalRewardScoreUnit: 900,
         maxRewardBoxes: 10,
         maxCharacterLevel: 5,
-        hardEnemyHpScale: 0.88,
+        hardEnemyHpScale: 1.04,
         normalEnemyHpScale: 1.12,
-        hardEliteHpScale: 0.72,
-        hardBossHpScale: 0.82,
+        hardEliteHpScale: 0.92,
+        hardBossHpScale: 0.96,
         normalBossHpScale: 0.90,
-        hardCollisionDamageCap: 35,
+        hardCollisionDamageCap: 42,
         normalCollisionDamageCap: 55,
+        hardEliteStartLevel: 6,
+        hardEliteMaxCount: 5,
+        hardEliteBaseChance: 0.065,
+        hardEliteMaxChance: 0.24,
+        hardElitePitySpawns: 6,
 
         // ===== 무기/필살기 추가 밸런스 패치 =====
         // 수호의검: 약하다는 피드백 반영 → 사거리/판정/피해/타격 주기 상향
@@ -288,14 +295,24 @@
         if (firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("여기에")) {
             // 노말 모드 (시즌 1)
             db.collection("scores_5_9").orderBy("score", "desc").limit(100).onSnapshot((snap) => {
+                leaderboardErrors.normal = null;
                 leaderboardsNormal = [];
-                snap.forEach((doc) => leaderboardsNormal.push({ id: doc.id, ...doc.data() }));
+                snap.forEach((doc) => leaderboardsNormal.push(normalizeScoreDoc(doc)));
+                updateHomeUI();
+            }, (error) => {
+                console.error("노말 랭킹 불러오기 실패:", error);
+                leaderboardErrors.normal = error.message || String(error);
                 updateHomeUI();
             });
             // 하드 모드 (시즌 2)
             db.collection("scores_s2").orderBy("score", "desc").limit(100).onSnapshot((snap) => {
+                leaderboardErrors.hard = null;
                 leaderboardsHard = [];
-                snap.forEach((doc) => leaderboardsHard.push({ id: doc.id, ...doc.data() }));
+                snap.forEach((doc) => leaderboardsHard.push(normalizeScoreDoc(doc)));
+                updateHomeUI();
+            }, (error) => {
+                console.error("하드 랭킹 불러오기 실패:", error);
+                leaderboardErrors.hard = error.message || String(error);
                 updateHomeUI();
             });
         }
@@ -346,7 +363,7 @@
         enemyProjectiles = []; enemyUltEffects = []; enemyBlackHoles = [];
         
         score = 0; level = 1; exp = 0; maxExp = Math.floor((10 + (level * level * 2)) * 1.05);
-        attackTimer = 0; enemyTimer = 0; itemTimer = 0; lastTime = performance.now();
+        attackTimer = 0; enemyTimer = 0; itemTimer = 0; eliteSpawnCounter = 0; lastTime = performance.now();
         targetX = player.x; targetY = player.y;
         
         selectedUlt = null; ultGauge = 0; activeUltTimer = 0; activeUltData = {}; ultFlash = 0;
@@ -535,8 +552,20 @@
 
     window.equipChar = (id) => { equippedCharId = id; saveUserData(); renderStore(); };
     
-    window.deleteRecord = () => {
-        alert("보안상 게임 화면에서 직접 삭제는 막아두었습니다. 기록 삭제는 Firebase 콘솔에서 선생님이 직접 해주세요.");
+    window.deleteRecord = (docId, collectionName) => {
+        if (!docId || !collectionName) return;
+        if (document.getElementById('nicknameInput').value !== '식이쌤관리자') {
+            alert('관리자 모드에서만 삭제할 수 있습니다.');
+            return;
+        }
+        if (confirm('정말 이 기록을 랭킹에서 삭제하시겠습니까?')) {
+            db.collection(collectionName).doc(docId).delete().then(() => {
+                alert('기록을 삭제했습니다.');
+            }).catch((error) => {
+                console.error('삭제 실패:', error);
+                alert('삭제 실패: Firestore 보안 규칙에서 삭제가 막혀 있을 수 있습니다.');
+            });
+        }
     };
 
     function createParticles(x, y, color) { 
@@ -569,12 +598,12 @@
         shakeAmount = 15; 
     }
 
-    function spawnEnemy(isBoss = false) {
+    function spawnEnemy(isBoss = false, forceElite = false) {
         let x, y;
         if (Math.random() < 0.5) { x = Math.random() < 0.5 ? -50 : canvas.width + 50; y = Math.random() * canvas.height; } 
         else { x = Math.random() * canvas.width; y = Math.random() < 0.5 ? -50 : canvas.height + 50; }
         
-        let hellScale = currentDifficulty === 'hard' && level > 30 ? Math.pow(1.045, level - 30) : 1;
+        let hellScale = currentDifficulty === 'hard' && level > 28 ? Math.pow(1.055, level - 28) : 1;
 
         if (isBoss) {
             const isEliteBoss = level % 10 === 0; 
@@ -586,7 +615,7 @@
                 totalHp = Math.floor(totalHp * BALANCE.hardBossHpScale);
             }
 
-            const bSpeed = currentDifficulty === 'hard' ? (isEliteBoss ? 1.18 : 0.82) : (isEliteBoss ? 1.45 : 0.98);
+            const bSpeed = currentDifficulty === 'hard' ? (isEliteBoss ? 1.30 : 0.92) : (isEliteBoss ? 1.45 : 0.98);
             enemies.push({ 
                 x, y, size: isEliteBoss ? 45 : 35, shape: 'square', color: '#2D00F7', 
                 shield: totalHp - 8, hp: 8, maxHp: totalHp, speed: bSpeed, baseSpeed: bSpeed, 
@@ -599,15 +628,17 @@
             // 노말도 중반부터 약한 엘리트가 나오게 하고, 하드는 엘리트 확률/동시 수를 완화
             let isElite = false;
             if (currentDifficulty === 'hard') {
-                isElite = level > 7 && currentElites < 3 && Math.random() < Math.min(0.08, 0.015 + (level - 7) * 0.0025);
+                const eliteChance = Math.min(BALANCE.hardEliteMaxChance, BALANCE.hardEliteBaseChance + Math.max(0, level - BALANCE.hardEliteStartLevel) * 0.006);
+                isElite = level >= BALANCE.hardEliteStartLevel && currentElites < BALANCE.hardEliteMaxCount && (forceElite || Math.random() < eliteChance);
+                if (isElite) eliteSpawnCounter = 0;
             } else {
                 isElite = level > 12 && currentElites < 2 && Math.random() < Math.min(0.06, 0.01 + (level - 12) * 0.002);
             }
             
             if (isElite) {
                 let types = currentDifficulty === 'hard' ? ['charger', 'mage', 'glutton'] : ['charger', 'glutton'];
-                if (currentDifficulty === 'hard' && level >= 25) types.push('bomber', 'flamer');
-                if (currentDifficulty === 'hard' && level >= 35) types.push('meteor', 'void');
+                if (currentDifficulty === 'hard' && level >= 20) types.push('bomber', 'flamer');
+                if (currentDifficulty === 'hard' && level >= 30) types.push('meteor', 'void');
                 
                 const eType = types[Math.floor(Math.random() * types.length)];
                 const totalHp = Math.max(8, Math.floor(level * 7.5 * hellScale * (currentDifficulty === 'hard' ? BALANCE.hardEliteHpScale : 0.85))); 
@@ -622,13 +653,13 @@
                 enemies.push({
                     x, y, size: 25, shape: (eType==='charger' ? 'triangle' : eType==='mage' ? 'square' : 'circle'), 
                     color: eColor, 
-                    shield: totalHp - 8, hp: 8, maxHp: totalHp, speed: 1.2, isBoss: false, isElite: true, eliteType: eType,
-                    actionTimer: 2000, subState: (eType==='charger' ? 'aim' : '')
+                    shield: totalHp - 8, hp: 8, maxHp: totalHp, speed: (currentDifficulty === 'hard' ? 1.32 : 1.2), isBoss: false, isElite: true, eliteType: eType,
+                    actionTimer: 2000, subState: (eType==='charger' ? 'aim' : ''), hasEntered: false
                 });
             } else {
                 let hp = (level <= 5) ? Math.floor(Math.random() * 3) + 1 : Math.floor((Math.random() * (2 + level * 1.8)) * hellScale) + 1;
                 hp = Math.max(1, Math.floor(hp * (currentDifficulty === 'hard' ? BALANCE.hardEnemyHpScale : BALANCE.normalEnemyHpScale)));
-                let baseSpeed = (currentDifficulty === 'hard' ? 0.72 : 0.86) * Math.pow(currentDifficulty === 'hard' ? 1.016 : 1.022, Math.min(level, 50)); 
+                let baseSpeed = (currentDifficulty === 'hard' ? 0.82 : 0.86) * Math.pow(currentDifficulty === 'hard' ? 1.022 : 1.022, Math.min(level, 50)); 
                 enemies.push({ x, y, size: 16, shape: SHAPES[Math.floor(Math.random() * SHAPES.length)], color: COLORS[Math.floor(Math.random() * COLORS.length)], hp, maxHp: hp, speed: baseSpeed + Math.random() * 0.4, isBoss: false, invuln: 0 });
             }
         }
@@ -664,7 +695,7 @@
 
         const MAX_ENEMIES = currentDifficulty === 'hard' ? BALANCE.maxEnemiesHard : BALANCE.maxEnemiesNormal; 
         let spawnDelay = currentDifficulty === 'hard'
-            ? Math.floor((level <= 5 ? 900 : Math.max(480, 1250 - (level * 35))))
+            ? Math.floor((level <= 5 ? 760 : Math.max(390, 1150 - (level * 45))))
             : Math.floor((level <= 5 ? 560 : Math.max(260, 980 - (level * 55))));
         
         if (enemyTimer > spawnDelay && enemies.length < MAX_ENEMIES) { 
@@ -900,7 +931,7 @@
                         if (e.hp <= 0) { 
                             // 🔥 하드 모드 보스는 20레벨 발광
                             if (currentDifficulty === 'hard' && e.isBoss && e.bossLevel >= 20 && !e.berserkUsed) {
-                                e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 4200; e.shield = 0;
+                                e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 5200; e.shield = 0;
                             } else {
                                 handleEnemyDeath(e, j, enemies); break; 
                             }
@@ -918,7 +949,7 @@
                 if (currentDifficulty === 'hard' && e.berserk) {
                     e.berserkTimer -= deltaTime;
                     e.patternState = 'enraged'; 
-                    e.speed = e.baseSpeed * 2.3; 
+                    e.speed = e.baseSpeed * 2.8; 
                     createParticles(e.x + (Math.random()-0.5)*e.size, e.y + (Math.random()-0.5)*e.size, '#FF0000'); 
                     
                     if (e.berserkTimer <= 0) {
@@ -930,13 +961,13 @@
                     e.patternTimer -= deltaTime;
                     if (e.patternTimer <= 0) {
                         // 🔥 노말은 무적패턴 지속 짧고 주기 긺
-                        let normalDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 4200 : 4200;
-                        let enragedDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 1800 : 2400;
+                        let normalDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 3600 : 4200;
+                        let enragedDur = (currentDifficulty === 'hard' && e.bossLevel >= 10) ? 2300 : 2400;
                         
                         if (e.patternState === 'normal') {
                             e.patternState = 'enraged';
                             e.patternTimer = enragedDur;
-                            e.speed = e.baseSpeed * (currentDifficulty === 'hard' ? 1.8 : 2.2);
+                            e.speed = e.baseSpeed * (currentDifficulty === 'hard' ? 2.15 : 2.2);
                         } else {
                             e.patternState = 'normal';
                             e.patternTimer = normalDur;
@@ -947,7 +978,14 @@
             }
 
             if (e.isElite) {
-                if (e.eliteType === 'charger') {
+                if (!e.hasEntered) {
+                    // 엘리트가 화면 밖에서 스킬만 쓰는 문제 방지: 먼저 화면 안으로 진입시킨 뒤 패턴 시작
+                    moveEnemyTowardPlayer(e, 1.8, frameScale);
+                    if (isEnemyOnScreen(e, 30)) {
+                        e.hasEntered = true;
+                        e.actionTimer = e.eliteType === 'charger' ? 1200 : 1800;
+                    }
+                } else if (e.eliteType === 'charger') {
                     if (e.subState === 'aim') {
                         e.actionTimer -= deltaTime;
                         e.angle = Math.atan2(player.y - e.y, player.x - e.x);
@@ -999,12 +1037,19 @@
                 } else if (e.eliteType === 'bomber') {
                     e.actionTimer -= deltaTime;
                     if (e.actionTimer <= 0) {
-                        dangerZones.push({x: player.x, y: player.y, radius: 120, timer: 2000}); 
-                        e.actionTimer = 4000;
+                        dangerZones.push({x: player.x, y: player.y, radius: 105, timer: 2100}); 
+                        e.actionTimer = 4300;
                     }
                     const dist = Math.hypot(player.x - e.x, player.y - e.y);
-                    const angle = Math.atan2(e.y - player.y, e.x - player.x);
-                    if (dist < 300) { e.x += Math.cos(angle) * e.speed * frameScale; e.y += Math.sin(angle) * e.speed * frameScale; }
+                    if (dist > 360) {
+                        moveEnemyTowardPlayer(e, 0.95, frameScale);
+                    } else if (dist < 240) {
+                        const angle = Math.atan2(e.y - player.y, e.x - player.x);
+                        e.x += Math.cos(angle) * e.speed * frameScale;
+                        e.y += Math.sin(angle) * e.speed * frameScale;
+                    } else {
+                        moveEnemyTowardPlayer(e, 0.25, frameScale);
+                    }
                 } else if (e.eliteType === 'meteor') {
                     e.actionTimer -= deltaTime;
                     if (e.actionTimer <= 0) {
@@ -1024,6 +1069,10 @@
                     }
                     const angle = Math.atan2(player.y - e.y, player.x - e.x);
                     e.x += Math.cos(angle) * e.speed * 0.5 * frameScale; e.y += Math.sin(angle) * e.speed * 0.5 * frameScale;
+                }
+                if (e.hasEntered && e.eliteType !== 'charger') {
+                    e.x = Math.max(20, Math.min(canvas.width - 20, e.x));
+                    e.y = Math.max(20, Math.min(canvas.height - 20, e.y));
                 }
             } else {
                 const angle = Math.atan2(player.y - e.y, player.x - e.x);
@@ -1062,7 +1111,7 @@
             
             if (e.hp <= 0) { 
                 if (currentDifficulty === 'hard' && e.isBoss && e.bossLevel >= 20 && !e.berserkUsed) {
-                    e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 4200; e.shield = 0;
+                    e.hp = 1; e.berserk = true; e.berserkUsed = true; e.berserkTimer = 5200; e.shield = 0;
                 } else {
                     handleEnemyDeath(e, i, enemies); continue; 
                 }
@@ -1072,7 +1121,7 @@
             
             if (Math.hypot(player.x - e.x, player.y - e.y) < player.radius + e.size) {
                 let collisionDmg = Math.min(e.hp, currentDifficulty === 'hard' ? BALANCE.hardCollisionDamageCap : BALANCE.normalCollisionDamageCap);
-                if (currentDifficulty === 'hard' && e.berserk) collisionDmg = 16; 
+                if (currentDifficulty === 'hard' && e.berserk) collisionDmg = 22; 
                 
                 if (Math.random() >= player.evasion) {
                     player.hp -= collisionDmg; damageFlash = 0.4; shakeAmount = 10;
@@ -1364,7 +1413,11 @@
                 if (!doc.exists || (Number(doc.data().score) || 0) < scoreData.score) {
                     return scoreRef.set(scoreData, { merge: true });
                 }
-            }).catch((error) => console.error("점수 저장 실패:", error));
+            }).catch((error) => {
+                console.error("점수 저장 실패:", error);
+                const rewardBox = document.getElementById('earnedFragmentsText');
+                if (rewardBox) rewardBox.innerHTML += "<div style='color:#FF9933; margin-top:8px;'>⚠️ 점수 저장 실패: Firestore 규칙을 확인해주세요.</div>";
+            });
         }
 
         screens.gameOver.style.display = 'flex'; canvas.style.display = 'none';
@@ -1373,11 +1426,21 @@
     }
 
     function updateHomeUI() {
+        const isAdmin = document.getElementById('nicknameInput').value === '식이쌤관리자';
         const selectedDiff = document.querySelector('input[name="difficultyMode"]:checked').value;
         document.getElementById('homeLbTitle').innerText = selectedDiff === 'hard' ? '🏆 하드 모드 명예의 전당 (Top 5) 🏆' : '🏆 노말 모드 명예의 전당 (Top 5) 🏆';
         document.getElementById('fullLbTitle').innerText = selectedDiff === 'hard' ? '🏆 하드 모드 전체 랭킹 🏆' : '🏆 노말 모드 전체 랭킹 🏆';
         
         const currentLB = selectedDiff === 'hard' ? leaderboardsHard : leaderboardsNormal;
+        const collName = selectedDiff === 'hard' ? 'scores_s2' : 'scores_5_9';
+        const currentError = selectedDiff === 'hard' ? leaderboardErrors.hard : leaderboardErrors.normal;
+        if (currentError) {
+            const msg = `<li style="color:#FF9933;">랭킹 불러오기 실패: Firestore 규칙 또는 네트워크를 확인하세요.</li>`;
+            document.getElementById('homeLeaderboard').innerHTML = msg;
+            const fullLeaderboardEl = document.getElementById('fullLeaderboard');
+            if (fullLeaderboardEl) fullLeaderboardEl.innerHTML = msg;
+            return;
+        }
         const validLB = currentLB
             .filter(e => e && typeof e.name !== 'undefined' && typeof e.score !== 'undefined')
             .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
@@ -1386,14 +1449,20 @@
         const homeHtml = top5.length ? top5.map((e, i) => `
             <li style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
                 <span>${i + 1}. ${escapeHtml(e.name)}</span> 
-                <div><span style="color:#FFD700">${Number(e.score) || 0}점</span></div>
+                <div>
+                    <span style="color:#FFD700">${Number(e.score) || 0}점</span>
+                    ${isAdmin && e.id ? `<button onclick="deleteRecord('${e.id}', '${collName}')" style="margin-left:10px; background:#FF3366; color:white; border:none; border-radius:5px; cursor:pointer; font-family:'Jua'; padding:2px 8px;">삭제</button>` : ''}
+                </div>
             </li>`).join('') : '<li>기록 없음</li>';
         document.getElementById('homeLeaderboard').innerHTML = homeHtml;
 
         const fullHtml = validLB.length ? validLB.map((e, i) => `
             <li style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid rgba(255,255,255,0.1); padding: 5px 0;">
                 <span><strong style="color:${i<3?'#FF3366':'#00E5FF'}">${i + 1}위.</strong> ${escapeHtml(e.name)} (Lv.${Number(e.level) || 1})</span> 
-                <div><span style="color:#FFD700">${Number(e.score) || 0}점</span></div>
+                <div>
+                    <span style="color:#FFD700">${Number(e.score) || 0}점</span>
+                    ${isAdmin && e.id ? `<button onclick="deleteRecord('${e.id}', '${collName}')" style="margin-left:10px; background:#FF3366; color:white; border:none; border-radius:5px; cursor:pointer; font-family:'Jua'; padding:2px 8px;">삭제</button>` : ''}
+                </div>
             </li>`).join('') : '<li>기록 없음</li>';
 
         const fullLeaderboardEl = document.getElementById('fullLeaderboard');
