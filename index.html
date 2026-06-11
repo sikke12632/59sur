@@ -254,6 +254,18 @@
             .replaceAll("'", '&#039;');
     }
 
+
+    function normalizeScoreDoc(doc) {
+        const data = doc.data ? (doc.data() || {}) : (doc || {});
+        return {
+            id: doc.id || data.id || '',
+            name: getCleanNickname(data.name || doc.id || '이름없음') || '이름없음',
+            score: Number(data.score) || 0,
+            level: Number(data.level) || 1,
+            mode: data.mode || ''
+        };
+    }
+
     window.addEventListener('keydown', (e) => { 
         if (keys.hasOwnProperty(e.key)) keys[e.key] = true; 
         
