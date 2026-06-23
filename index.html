@@ -953,13 +953,13 @@
         normalEliteBaseChance: 0.012,
         normalEliteMaxChance: 0.06,
         hardElitePitySpawns: 6,
-        normalExpMultiplier: 1.42,
-        hardExpMultiplier: 1.58,
+        normalExpMultiplier: 0.82,
+        hardExpMultiplier: 0.95,
         earlyExpBoostLevel: 5,
-        earlyExpBoost: 1.05,
-        initialMaxExp: 18,
-        levelExpBase: 14,
-        levelExpPow: 1.90,
+        earlyExpBoost: 1.0,
+        initialMaxExp: 40,
+        levelExpBase: 32,
+        levelExpPow: 1.95,
         normalSpawnSpeedMultiplier: 0.86,
         hardSpawnSpeedMultiplier: 1.32,
         normalSpeedGrowth: 1.026,
@@ -1238,7 +1238,9 @@
             score = Number(saveData.score) || 0;
             level = Math.max(1, Number(saveData.level) || 1);
             exp = Math.max(0, Number(saveData.exp) || 0);
-            maxExp = Math.max(1, Number(saveData.maxExp) || BALANCE.initialMaxExp);
+            const recalculatedMaxExp = level <= 1 ? BALANCE.initialMaxExp : getNextMaxExp(level);
+            maxExp = Math.max(recalculatedMaxExp, Number(saveData.maxExp) || BALANCE.initialMaxExp);
+            exp = Math.min(exp, Math.max(0, maxExp - 1));
 
             player = { ...saveData.player };
             weapons = { ...saveData.weapons };
@@ -1540,7 +1542,7 @@
     }
 
     function getNextMaxExp(nextLevel) {
-        return Math.floor((BALANCE.levelExpBase + Math.pow(nextLevel, BALANCE.levelExpPow) * 2.15) * 1.05);
+        return Math.floor((BALANCE.levelExpBase + Math.pow(nextLevel, BALANCE.levelExpPow) * 3.2) * 1.10);
     }
 
     function createNeonPulse(x, y, color = '#00E5FF', radius = 70, duration = 420) {
