@@ -956,8 +956,8 @@
         normalExpMultiplier: 0.82,
         hardExpMultiplier: 0.95,
         earlyExpBoostLevel: 5,
-        earlyExpBoost: 1.0,
-        initialMaxExp: 40,
+        earlyExpBoost: 2.0,
+        initialMaxExp: 9,
         levelExpBase: 32,
         levelExpPow: 1.95,
         normalSpawnSpeedMultiplier: 0.86,
@@ -1240,7 +1240,7 @@
             level = Math.max(1, Number(saveData.level) || 1);
             exp = Math.max(0, Number(saveData.exp) || 0);
             const recalculatedMaxExp = level <= 1 ? BALANCE.initialMaxExp : getNextMaxExp(level);
-            maxExp = Math.max(recalculatedMaxExp, Number(saveData.maxExp) || BALANCE.initialMaxExp);
+            maxExp = recalculatedMaxExp;
             exp = Math.min(exp, Math.max(0, maxExp - 1));
 
             player = { ...saveData.player };
@@ -1543,6 +1543,12 @@
     }
 
     function getNextMaxExp(nextLevel) {
+        if (nextLevel <= 5) {
+            return [0, 9, 14, 22, 31, 43][nextLevel];
+        }
+        if (nextLevel <= 10) {
+            return Math.floor((14 + Math.pow(nextLevel, 1.90) * 2.15) * 1.05);
+        }
         return Math.floor((BALANCE.levelExpBase + Math.pow(nextLevel, BALANCE.levelExpPow) * 3.2) * 1.10);
     }
 
