@@ -902,6 +902,7 @@
     let comboCount = 0, comboTimer = 0, comboFlashTimer = 0, comboLastBonus = 0;
     let treasureTimer = 0, activeMission = null, missionCooldownTimer = 0;
     let eventMessage = '', eventMessageTimer = 0, eventMessageColor = '#FFD700';
+    let oguAllies = [], oguProjectiles = [], oguAssembleCooldown = 0, comboAssembleAwarded = false;
     
     let targetX = 400, targetY = 300;
     let currentControlType = 'keyboard';
@@ -974,6 +975,26 @@
         treasureSpawnMaxMs: 34000,
         missionCooldownMinMs: 18000,
         missionCooldownMaxMs: 30000,
+        oguAssembleCooldownMs: 25000,
+        oguAssembleDurationMs: 3000,
+        oguAssembleFireMs: 165,
+        oguAssembleTreasureChance: 0.08,
+        oguAssembleMissionChance: 0.12,
+        oguAssembleDamageScale: 0.72,
+        oguAssembleEliteDamageScale: 0.60,
+        oguAssembleBossDamageScale: 0.25,
+        maxWeaponDamage: 10,
+        minWeaponFireRate: 150,
+        maxPlayerSpeed: 7.0,
+        maxPlayerHp: 300,
+        maxMultiShot: 12,
+        maxOrbitals: 10,
+        maxPierce: 8,
+        maxBossDamageMult: 3.5,
+        maxEvasion: 0.5,
+        maxUltGaugeLevel: 5,
+        maxUltDamageLevel: 5,
+        maxUltSizeLevel: 4,
 
         // ===== 무기/필살기 추가 밸런스 패치 =====
         // 수호의검: 약하다는 피드백 반영 → 사거리/판정/피해/타격 주기 상향
@@ -984,12 +1005,12 @@
         orbitalHitCooldownMs: 320,
 
         // 화염방사: OP 피드백 반영 → 지속시간/범위/피해/넉백/요구 게이지 하향 조정
-        flameDurationMs: 1900,
-        flameRadius: 115,
-        flameBaseDamage: 0.065,
-        flameDamagePerUpgrade: 0.055,
-        flameKnockback: 0.75,
-        flameGaugeRequired: 240
+        flameDurationMs: 1600,
+        flameRadius: 100,
+        flameBaseDamage: 0.048,
+        flameDamagePerUpgrade: 0.04,
+        flameKnockback: 0.55,
+        flameGaugeRequired: 260
     };
 
     let gameOverProcessed = false;
@@ -1031,6 +1052,10 @@
         eventMessage = '';
         eventMessageTimer = 0;
         eventMessageColor = '#FFD700';
+        oguAllies = [];
+        oguProjectiles = [];
+        oguAssembleCooldown = 0;
+        comboAssembleAwarded = false;
     }
 
 
@@ -1417,7 +1442,7 @@
         document.getElementById('currentStatsDisplay').innerHTML = ''; 
         const choices = [
             { id: 'bomb', icon: '💣', title: '오구 폭탄', desc: '설치 후 2초 뒤 폭발하여 화면 전체를 폭격합니다. (광역 3 피해)', apply() { selectedUlt = 'bomb'; ultMax = 200; } },
-            { id: 'flame', icon: '🔥', title: '불꽃 방사', desc: '1.9초간 주변 적을 태웁니다. 범위와 피해량이 줄어든 대신 안정적입니다.', apply() { selectedUlt = 'flame'; ultMax = BALANCE.flameGaugeRequired; } },
+            { id: 'flame', icon: '🔥', title: '불꽃 방사', desc: '1.6초간 주변 적을 태웁니다. 범위와 피해량은 낮지만 안정적입니다.', apply() { selectedUlt = 'flame'; ultMax = BALANCE.flameGaugeRequired; } },
             { id: 'meteor', icon: '🌠', title: '메테오', desc: '무작위 적을 향해 별똥별 4발을 떨어뜨립니다. (발당 5 피해)', apply() { selectedUlt = 'meteor'; ultMax = 200; } }
         ];
         renderModalOptions(choices);
@@ -1433,14 +1458,18 @@
         else if (selectedUlt === 'flame') { curDmg = (BALANCE.flameBaseDamage + ultStats.damageLevel * BALANCE.flameDamagePerUpgrade).toFixed(3); nextDmg = (BALANCE.flameBaseDamage + (ultStats.damageLevel+1) * BALANCE.flameDamagePerUpgrade).toFixed(3); }
         else if (selectedUlt === 'meteor') { curDmg = 5 + ultStats.damageLevel * 5; nextDmg = curDmg + 5; }
 
-        let curGauge = Math.max(50, 200 - ultStats.gaugeLevel * 30);
-        let nextGauge = Math.max(50, 200 - (ultStats.gaugeLevel + 1) * 30);
+        const baseUltGauge = selectedUlt === 'flame' ? BALANCE.flameGaugeRequired : 200;
+        let curGauge = Math.max(50, baseUltGauge - ultStats.gaugeLevel * 30);
+        let nextGauge = Math.max(50, baseUltGauge - (ultStats.gaugeLevel + 1) * 30);
 
         const choices = [
-            { id: 'gauge', icon: '⚡', title: '게이지 감소', desc: `발동 요구량: ${curGauge} ➔ ${nextGauge}`, apply() { ultStats.gaugeLevel++; ultMax = Math.max(50, 200 - ultStats.gaugeLevel * 30); } },
-            { id: 'damage', icon: '💥', title: '위력 증가', desc: `피해량: ${curDmg} ➔ ${nextDmg}`, apply() { ultStats.damageLevel++; } },
-            { id: 'size', icon: '📐', title: '범위 확장', desc: `필살기 타격 범위/크기 25% 증가`, apply() { ultStats.sizeLevel++; } }
-        ];
+            { id: 'gauge', icon: '⚡', title: '게이지 감소', available: ultStats.gaugeLevel < BALANCE.maxUltGaugeLevel, desc: `발동 요구량: ${curGauge} ➔ ${nextGauge}`, apply() { ultStats.gaugeLevel = Math.min(BALANCE.maxUltGaugeLevel, ultStats.gaugeLevel + 1); ultMax = Math.max(50, baseUltGauge - ultStats.gaugeLevel * 30); } },
+            { id: 'damage', icon: '💥', title: '위력 증가', available: ultStats.damageLevel < BALANCE.maxUltDamageLevel, desc: `피해량: ${curDmg} ➔ ${nextDmg}`, apply() { ultStats.damageLevel = Math.min(BALANCE.maxUltDamageLevel, ultStats.damageLevel + 1); } },
+            { id: 'size', icon: '📐', title: '범위 확장', available: ultStats.sizeLevel < BALANCE.maxUltSizeLevel, desc: `필살기 타격 범위/크기 25% 증가`, apply() { ultStats.sizeLevel = Math.min(BALANCE.maxUltSizeLevel, ultStats.sizeLevel + 1); } }
+        ].filter(opt => opt.available !== false);
+        if (choices.length === 0) {
+            choices.push({ id: 'ult-heal', icon: '💖', title: '응원 보너스', desc: '필살기 강화가 최대치입니다. HP를 80 회복합니다.', apply() { player.hp = Math.min(player.maxHp, player.hp + 80); } });
+        }
         renderModalOptions(choices);
     }
 
@@ -1473,25 +1502,29 @@
         const isWolfLucky = equippedCharId === 'wolf' && Math.random() < upgradeChance;
 
         const currentUpgrades = [
-            { id: 1, icon: '🗡️', title: isDogLucky ? '공격력 (대성공!)' : '공격력', val: (isDogLucky ? 2 : 1), get desc() { return `데미지 +${this.val}`; }, apply() { weapons.damage += this.val; } },
-            { id: 2, icon: '⚡', title: isCatLucky ? '공격 속도 (대성공!)' : '공격 속도', val: (isCatLucky ? 0.75 : 0.85), get desc() { return `연사력 +${isCatLucky ? '25%' : '15%'}`; }, apply() { weapons.fireRate = Math.max(100, weapons.fireRate * this.val); } },
-            { id: 3, icon: '👟', title: isRabbitLucky ? '이동 속도 (대성공!)' : '이동 속도', val: (isRabbitLucky ? 1.6 : 0.8), get desc() { return `속도 +${this.val}`; }, apply() { player.speed += this.val; } },
-            { id: 4, icon: '❤️', title: isBearLucky ? '체력 단련 (대성공!)' : '체력 단련', val: (isBearLucky ? 60 : 30), get desc() { return `최대 HP +${this.val}`; }, apply() { player.maxHp += this.val; player.hp = Math.min(player.maxHp, player.hp + this.val); } },
-            { id: 5, icon: '✨', title: isChickLucky ? '다중 발사 (대성공!)' : '다중 발사', val: (isChickLucky ? 2 : 1), get desc() { return `탄환 수 +${this.val} (최대 12)`; }, apply() { weapons.multiShot = Math.min(12, weapons.multiShot + this.val); } },
-            { id: 6, icon: '🔄', title: isWolfLucky ? '수호의 검 (대성공!)' : '수호의 검', val: (isWolfLucky ? 2 : 1), get desc() { return `검 개수 +${this.val} / 근접 타격 강화`; }, apply() { weapons.orbitals = Math.min(10, weapons.orbitals + this.val); } },
-            { id: 7, icon: '☄️', title: '관통탄', val: 1, desc: '관통 +1회 (최대 8)', apply() { weapons.pierce = Math.min(8, weapons.pierce + 1); } },
-            { id: 8, icon: '👹', title: '거인 사냥꾼', val: 0.5, desc: '보스 피해 +50%', apply() { weapons.bossDamageMult += 0.5; } }
+            { id: 1, icon: '🗡️', title: isDogLucky ? '공격력 (대성공!)' : '공격력', available: weapons.damage < BALANCE.maxWeaponDamage, val: Math.min(isDogLucky ? 2 : 1, Math.max(0, BALANCE.maxWeaponDamage - weapons.damage)), get desc() { return `데미지 +${this.val} (최대 ${BALANCE.maxWeaponDamage})`; }, apply() { weapons.damage = Math.min(BALANCE.maxWeaponDamage, weapons.damage + this.val); } },
+            { id: 2, icon: '⚡', title: isCatLucky ? '공격 속도 (대성공!)' : '공격 속도', available: weapons.fireRate > BALANCE.minWeaponFireRate, val: (isCatLucky ? 0.75 : 0.85), get desc() { return `연사력 +${isCatLucky ? '25%' : '15%'} (최대 도달 시 제외)`; }, apply() { weapons.fireRate = Math.max(BALANCE.minWeaponFireRate, weapons.fireRate * this.val); } },
+            { id: 3, icon: '👟', title: isRabbitLucky ? '이동 속도 (대성공!)' : '이동 속도', available: player.speed < BALANCE.maxPlayerSpeed, val: Math.min(isRabbitLucky ? 1.6 : 0.8, Math.max(0, BALANCE.maxPlayerSpeed - player.speed)), get desc() { return `속도 +${this.val.toFixed(1)} (최대 ${BALANCE.maxPlayerSpeed})`; }, apply() { player.speed = Math.min(BALANCE.maxPlayerSpeed, player.speed + this.val); } },
+            { id: 4, icon: '❤️', title: isBearLucky ? '체력 단련 (대성공!)' : '체력 단련', available: player.maxHp < BALANCE.maxPlayerHp, val: Math.min(isBearLucky ? 60 : 30, Math.max(0, BALANCE.maxPlayerHp - player.maxHp)), get desc() { return `최대 HP +${this.val} (최대 ${BALANCE.maxPlayerHp})`; }, apply() { player.maxHp = Math.min(BALANCE.maxPlayerHp, player.maxHp + this.val); player.hp = Math.min(player.maxHp, player.hp + this.val); } },
+            { id: 5, icon: '✨', title: isChickLucky ? '다중 발사 (대성공!)' : '다중 발사', available: weapons.multiShot < BALANCE.maxMultiShot, val: Math.min(isChickLucky ? 2 : 1, Math.max(0, BALANCE.maxMultiShot - weapons.multiShot)), get desc() { return `탄환 수 +${this.val} (최대 ${BALANCE.maxMultiShot})`; }, apply() { weapons.multiShot = Math.min(BALANCE.maxMultiShot, weapons.multiShot + this.val); } },
+            { id: 6, icon: '🔄', title: isWolfLucky ? '수호의 검 (대성공!)' : '수호의 검', available: weapons.orbitals < BALANCE.maxOrbitals, val: Math.min(isWolfLucky ? 2 : 1, Math.max(0, BALANCE.maxOrbitals - weapons.orbitals)), get desc() { return `검 개수 +${this.val} / 근접 타격 강화`; }, apply() { weapons.orbitals = Math.min(BALANCE.maxOrbitals, weapons.orbitals + this.val); } },
+            { id: 7, icon: '☄️', title: '관통탄', available: weapons.pierce < BALANCE.maxPierce, val: 1, get desc() { return `관통 +1회 (최대 ${BALANCE.maxPierce})`; }, apply() { weapons.pierce = Math.min(BALANCE.maxPierce, weapons.pierce + 1); } },
+            { id: 8, icon: '👹', title: '거인 사냥꾼', available: weapons.bossDamageMult < BALANCE.maxBossDamageMult, val: Math.min(0.5, Math.max(0, BALANCE.maxBossDamageMult - weapons.bossDamageMult)), get desc() { return `보스 피해 +${Math.round(this.val * 100)}% (최대 +${Math.round((BALANCE.maxBossDamageMult - 1) * 100)}%)`; }, apply() { weapons.bossDamageMult = Math.min(BALANCE.maxBossDamageMult, weapons.bossDamageMult + this.val); } }
         ];
 
-        if (player.evasionLevel < 5) {
+        if (player.evasionLevel < 5 && player.evasion < BALANCE.maxEvasion) {
             currentUpgrades.push({ 
                 id: 9, icon: '💨', title: '회피 기동', val: 0.1, 
                 get desc() { return `회피율 +10% (현재: ${Math.floor(player.evasion*100)}%) / 최대 50%`; }, 
-                apply() { player.evasion += 0.1; player.evasionLevel++; } 
+                apply() { player.evasion = Math.min(BALANCE.maxEvasion, player.evasion + 0.1); player.evasionLevel++; } 
             });
         }
 
-        const choices = [...currentUpgrades].sort(() => 0.5 - Math.random()).slice(0, 3);
+        const availableUpgrades = currentUpgrades.filter(opt => opt.available !== false && (!Number.isFinite(Number(opt.val)) || Number(opt.val) > 0));
+        if (availableUpgrades.length === 0) {
+            availableUpgrades.push({ id: 'heal', icon: '💖', title: '응급 회복', desc: '모든 능력이 최대치입니다. HP를 60 회복합니다.', apply() { player.hp = Math.min(player.maxHp, player.hp + 60); } });
+        }
+        const choices = [...availableUpgrades].sort(() => 0.5 - Math.random()).slice(0, 3);
         renderModalOptions(choices);
     }
 
@@ -1614,12 +1647,16 @@
         comboTimer = 0;
         comboFlashTimer = 0;
         comboLastBonus = 0;
+        comboAssembleAwarded = false;
     }
 
     function registerEnemyKill(enemy) {
         comboCount = Math.min(999, comboCount + 1);
         comboTimer = BALANCE.comboTimeoutMs;
         comboFlashTimer = 420;
+        if (comboCount === 30 && !comboAssembleAwarded) {
+            comboAssembleAwarded = triggerOguAssemble('combo');
+        }
 
         if (!activeMission) return;
         const missionType = activeMission.type;
@@ -1634,6 +1671,133 @@
         player.hp -= amount;
         damageFlash = Math.max(damageFlash, flash);
         shakeAmount = Math.max(shakeAmount, shake);
+    }
+
+    function getNearestEnemyFrom(x, y) {
+        if (!enemies.length) return null;
+        let nearest = enemies[0];
+        let minDist = Math.hypot(x - nearest.x, y - nearest.y);
+        enemies.forEach(e => {
+            const dist = Math.hypot(x - e.x, y - e.y);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = e;
+            }
+        });
+        return nearest;
+    }
+
+    function triggerOguAssemble(source = 'reward') {
+        if (!player || oguAssembleCooldown > 0 || oguAllies.length > 0) return false;
+        const candidates = CHARACTERS.filter(char => char.id !== equippedCharId);
+        if (!candidates.length) return false;
+
+        const allies = [...candidates].sort(() => 0.5 - Math.random()).slice(0, Math.min(3, candidates.length));
+        const lanes = [130, 300, 470].sort(() => 0.5 - Math.random());
+        oguAllies = allies.map((char, index) => {
+            const dir = index % 2 === 0 ? 1 : -1;
+            return {
+                id: char.id,
+                icon: char.icon,
+                name: char.name,
+                x: dir > 0 ? -54 : canvas.width + 54,
+                y: lanes[index] || (150 + index * 130),
+                baseY: lanes[index] || (150 + index * 130),
+                dir,
+                timer: BALANCE.oguAssembleDurationMs,
+                fireTimer: index * 55,
+                seed: Math.random() * 1000
+            };
+        });
+        oguProjectiles = [];
+        oguAssembleCooldown = BALANCE.oguAssembleCooldownMs;
+        showEventMessage(source === 'combo' ? '30콤보! 오구 어셈블!' : '오구 어셈블!', '#FFD700', 2400);
+        createNeonPulse(player.x, player.y, '#FFD700', 110, 460);
+        return true;
+    }
+
+    function handleOguAssembleEnemyDeath(e, index, array) {
+        const basePoints = currentDifficulty === 'hard' ? e.maxHp : Math.ceil(e.maxHp / 3);
+        score += Math.max(1, Math.floor(basePoints * 0.5));
+        if (e.color === 'rainbow') createParticles(e.x, e.y, `hsl(${Date.now() % 360}, 100%, 50%)`);
+        else createParticles(e.x, e.y, e.color || '#FFD700');
+        if (e.isElite) createNeonPulse(e.x, e.y, '#FFD700', 80, 300);
+        array.splice(index, 1);
+    }
+
+    function applyOguAssembleDamage(e, rawDamage) {
+        const scale = e.isBoss ? BALANCE.oguAssembleBossDamageScale : (e.isElite ? BALANCE.oguAssembleEliteDamageScale : 1);
+        const dmg = rawDamage * scale;
+        if ((e.isBoss || e.isElite) && (e.shield || 0) > 0) {
+            e.shield -= dmg;
+            if (e.shield < 0) {
+                e.hp += e.shield;
+                e.shield = 0;
+            }
+        } else {
+            e.hp -= dmg;
+        }
+        if (e.isBoss && e.hp <= 0) e.hp = 1;
+    }
+
+    function updateOguAssemble(deltaTime, frameScale) {
+        if (oguAssembleCooldown > 0) oguAssembleCooldown = Math.max(0, oguAssembleCooldown - deltaTime);
+
+        for (let i = oguAllies.length - 1; i >= 0; i--) {
+            const ally = oguAllies[i];
+            ally.timer -= deltaTime;
+            ally.x += ally.dir * 3.2 * frameScale;
+            ally.y = ally.baseY + Math.sin((performance.now() + ally.seed) / 160) * 8;
+            ally.fireTimer -= deltaTime;
+
+            if (ally.timer > 250 && ally.fireTimer <= 0 && enemies.length > 0) {
+                const target = getNearestEnemyFrom(ally.x, ally.y);
+                if (target) {
+                    const angle = Math.atan2(target.y - ally.y, target.x - ally.x);
+                    const spread = (Math.random() - 0.5) * 0.16;
+                    const speed = 9.5;
+                    const damage = Math.max(2, weapons.damage * BALANCE.oguAssembleDamageScale);
+                    oguProjectiles.push({
+                        x: ally.x,
+                        y: ally.y,
+                        vx: Math.cos(angle + spread) * speed,
+                        vy: Math.sin(angle + spread) * speed,
+                        radius: 5,
+                        damage,
+                        life: 900,
+                        color: '#FFD700'
+                    });
+                    ally.fireTimer = BALANCE.oguAssembleFireMs;
+                }
+            }
+
+            if (ally.timer <= 0 || ally.x < -110 || ally.x > canvas.width + 110) oguAllies.splice(i, 1);
+        }
+
+        for (let i = oguProjectiles.length - 1; i >= 0; i--) {
+            const p = oguProjectiles[i];
+            p.life -= deltaTime;
+            p.x += p.vx * frameScale;
+            p.y += p.vy * frameScale;
+            if (p.life <= 0 || p.x < -40 || p.x > canvas.width + 40 || p.y < -40 || p.y > canvas.height + 40) {
+                oguProjectiles.splice(i, 1);
+                continue;
+            }
+
+            for (let j = enemies.length - 1; j >= 0; j--) {
+                const e = enemies[j];
+                if (Math.hypot(p.x - e.x, p.y - e.y) < p.radius + e.size) {
+                    const isInvincible = e.isBoss && e.patternState === 'enraged';
+                    if (!isInvincible) {
+                        applyOguAssembleDamage(e, p.damage);
+                        createParticles(p.x, p.y, '#FFD700');
+                        if (e.hp <= 0 && !e.isBoss) handleOguAssembleEnemyDeath(e, j, enemies);
+                    }
+                    oguProjectiles.splice(i, 1);
+                    break;
+                }
+            }
+        }
     }
 
     function resetTreasureTimer() {
@@ -1656,6 +1820,10 @@
     }
 
     function applyRandomReward(source = 'treasure') {
+        const assembleChance = source === 'mission' ? BALANCE.oguAssembleMissionChance : BALANCE.oguAssembleTreasureChance;
+        if (Math.random() < assembleChance && triggerOguAssemble(source)) {
+            return '오구 어셈블!';
+        }
         const rewards = [
             () => {
                 const heal = source === 'mission' ? 45 : 35;
@@ -1732,6 +1900,7 @@
             comboFlashTimer = Math.max(0, comboFlashTimer - deltaTime);
             if (comboTimer <= 0) resetCombo();
         }
+        updateOguAssemble(deltaTime, Math.min(3, Math.max(0.25, deltaTime / 16.67)));
 
         treasureTimer -= deltaTime;
         if (treasureTimer <= 0) {
@@ -2019,8 +2188,10 @@
             if (eff.type === 'bomb') {
                 eff.timer -= deltaTime;
                 if (eff.timer <= 0) {
-                    shakeAmount = 30; ultFlash = 1.0;
+                    shakeAmount = 34; ultFlash = 1.0;
                     createNeonPulse(eff.x, eff.y, '#FF6633', 210 * sizeMod, 480);
+                    createNeonPulse(eff.x, eff.y, '#FFD700', 270 * sizeMod, 560);
+                    createNeonPulse(eff.x, eff.y, '#00E5FF', 330 * sizeMod, 640);
                     enemies.forEach(e => {
                         if (Math.hypot(eff.x - e.x, eff.y - e.y) < 400 * sizeMod) {
                             const isInvincible = e.isBoss && e.patternState === 'enraged';
@@ -2031,19 +2202,23 @@
                             }
                         }
                     });
-                    for(let k=0; k<30; k++) createParticles(eff.x + (Math.random()-0.5)*200*sizeMod, eff.y + (Math.random()-0.5)*200*sizeMod, '#FFF');
+                    for(let k=0; k<58; k++) {
+                        const color = k % 3 === 0 ? '#FFD700' : (k % 3 === 1 ? '#FF6633' : '#FFFFFF');
+                        createParticles(eff.x + (Math.random()-0.5)*260*sizeMod, eff.y + (Math.random()-0.5)*260*sizeMod, color);
+                    }
                     ultEffects.splice(i, 1);
                 }
             } else if (eff.type === 'meteor') {
                 eff.progress += 0.04 * (deltaTime/16); 
                 const curX = eff.startX + (eff.targetX - eff.startX) * eff.progress;
                 const curY = eff.startY + (eff.targetY - eff.startY) * eff.progress;
-                particles.push({x: curX, y: curY, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, size: Math.random()*8+4, color: '#FFD700', life: 1.0, decay: 0.05});
+                particles.push({x: curX, y: curY, vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2, size: Math.random()*10+5, color: Math.random() > 0.45 ? '#FFD700' : '#FF3366', life: 1.0, decay: 0.05});
 
                 if (eff.progress >= 1.0) {
-                    shakeAmount = 15;
-                    createNeonPulse(eff.targetX, eff.targetY, '#FF3366', 145 * sizeMod, 420);
-                    for(let k=0; k<20; k++) createParticles(eff.targetX, eff.targetY, '#FF3366');
+                    shakeAmount = 24;
+                    createNeonPulse(eff.targetX, eff.targetY, '#FF3366', 165 * sizeMod, 430);
+                    createNeonPulse(eff.targetX, eff.targetY, '#FFD700', 105 * sizeMod, 360);
+                    for(let k=0; k<38; k++) createParticles(eff.targetX, eff.targetY, k % 2 ? '#FF3366' : '#FFD700');
                     enemies.forEach(e => {
                         if (Math.hypot(eff.targetX - e.x, eff.targetY - e.y) < 120 * sizeMod) {
                             const isInvincible = e.isBoss && e.patternState === 'enraged';
@@ -2614,6 +2789,49 @@
         ctx.restore();
     }
 
+    function drawOguAssemble(now) {
+        oguProjectiles.forEach(p => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(p.x - p.vx * 1.9, p.y - p.vy * 1.9);
+            ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.58)';
+            ctx.lineWidth = 4;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#FFD700';
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#FFF3A0';
+            ctx.fill();
+            ctx.restore();
+        });
+
+        oguAllies.forEach(ally => {
+            const sprite = getCharacterSprite(ally.id);
+            const size = 46 + Math.sin((now + ally.seed) / 180) * 2;
+            ctx.save();
+            ctx.translate(ally.x, ally.y);
+            ctx.rotate(Math.sin((now + ally.seed) / 210) * 0.12);
+            ctx.shadowBlur = 14;
+            ctx.shadowColor = '#FFD700';
+            if (sprite) {
+                ctx.drawImage(sprite, -size / 2, -size * 0.58, size, size);
+            } else {
+                ctx.font = '34px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(ally.icon, 0, 0);
+            }
+            ctx.shadowBlur = 0;
+            ctx.font = 'bold 10px Jua, Malgun Gothic, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText('ASSIST', 0, 28);
+            ctx.restore();
+        });
+    }
+
     function drawSparkParticles() {
         particles.forEach(p => {
             ctx.globalAlpha = p.life;
@@ -2781,6 +2999,7 @@
         });
         
         enemies.forEach(e => drawEnemy(e));
+        drawOguAssemble(now);
         
         ultEffects.forEach(eff => {
             if (eff.type === 'bomb') {
@@ -2792,6 +3011,14 @@
                 ctx.lineWidth = 3;
                 ctx.shadowBlur = 14; ctx.shadowColor = '#FF6633';
                 ctx.stroke();
+                for (let ring = 0; ring < 3; ring++) {
+                    const rr = (76 + charge * 150 + ring * 34 + Math.sin(now / 120 + ring) * 5) * sizeMod;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, rr, 0, Math.PI * 2);
+                    ctx.strokeStyle = ring === 1 ? 'rgba(255, 215, 0, 0.34)' : 'rgba(0, 229, 255, 0.22)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
                 ctx.shadowBlur = 0;
                 drawEffectSprite('ult_bomb', 0, 0, 58 * scale, now / 450, () => {
                     ctx.font = '50px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('💣', 0, 0);
@@ -2803,6 +3030,18 @@
                 const curX = eff.startX + (eff.targetX - eff.startX) * eff.progress;
                 const curY = eff.startY + (eff.targetY - eff.startY) * eff.progress;
                 const meteorAngle = Math.atan2(eff.targetY - eff.startY, eff.targetX - eff.startX) + Math.PI / 4;
+                const tailX = curX - (eff.targetX - eff.startX) * 0.18;
+                const tailY = curY - (eff.targetY - eff.startY) * 0.18;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(tailX, tailY);
+                ctx.lineTo(curX, curY);
+                ctx.strokeStyle = 'rgba(255, 90, 36, 0.46)';
+                ctx.lineWidth = 16 * sizeMod;
+                ctx.shadowBlur = 18;
+                ctx.shadowColor = '#FF6633';
+                ctx.stroke();
+                ctx.restore();
                 drawEffectSprite('ult_meteor', curX, curY, 54 * sizeMod, meteorAngle, () => {
                     ctx.save(); ctx.translate(curX, curY);
                     ctx.beginPath(); ctx.arc(0, 0, 15 * sizeMod, 0, Math.PI*2);
@@ -2811,6 +3050,14 @@
                 });
                 ctx.beginPath(); ctx.arc(eff.targetX, eff.targetY, 120 * sizeMod, 0, Math.PI*2);
                 ctx.strokeStyle = `rgba(255, 51, 102, ${0.25 + Math.sin(now / 80) * 0.15})`; ctx.lineWidth = 2; ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(eff.targetX - 18 * sizeMod, eff.targetY);
+                ctx.lineTo(eff.targetX + 18 * sizeMod, eff.targetY);
+                ctx.moveTo(eff.targetX, eff.targetY - 18 * sizeMod);
+                ctx.lineTo(eff.targetX, eff.targetY + 18 * sizeMod);
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.72)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
             }
         });
 
