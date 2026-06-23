@@ -926,7 +926,7 @@
         // ===== 밸런스 패치 =====
         // 노말: 너무 쉬운 문제 해결 → 적 수/보스 체력/중반 엘리트 소폭 추가
         // 하드: 너무 어려운 문제 해결 → 적 수/엘리트 확률/충돌 피해/보스 발광 완화
-        maxEnemiesNormal: 148,
+        maxEnemiesNormal: 105,
         maxEnemiesHard: 124,
         itemSpawnMsNormal: 13000,
         itemSpawnMsHard: 12500,
@@ -939,29 +939,30 @@
         hardEliteHpScale: 0.96,
         hardBossHpScale: 0.76,
         hardEliteBossHpScale: 0.84,
-        normalBossHpScale: 0.98,
+        normalBossHpScale: 0.82,
         hardCollisionDamageCap: 42,
-        normalCollisionDamageCap: 55,
+        normalCollisionDamageCap: 40,
         hardEliteStartLevel: 5,
-        normalEliteStartLevel: 10,
+        normalEliteStartLevel: 14,
         hardEliteMaxCount: 3,
         hardEliteMaxCountBefore10: 2,
         hardEliteMaxCountDuringBoss: 1,
         hardEliteBaseChance: 0.072,
         hardEliteMaxChance: 0.23,
         hardEliteChanceDuringBossMultiplier: 0.35,
-        normalEliteBaseChance: 0.018,
-        normalEliteMaxChance: 0.085,
+        normalEliteBaseChance: 0.012,
+        normalEliteMaxChance: 0.06,
         hardElitePitySpawns: 6,
-        normalExpMultiplier: 1.42,
-        hardExpMultiplier: 1.58,
+        normalExpMultiplier: 0.82,
+        hardExpMultiplier: 0.95,
         earlyExpBoostLevel: 5,
-        earlyExpBoost: 1.16,
-        initialMaxExp: 9,
-        levelExpBase: 8,
-        levelExpPow: 1.82,
-        normalSpawnSpeedMultiplier: 1.18,
+        earlyExpBoost: 1.0,
+        initialMaxExp: 40,
+        levelExpBase: 32,
+        levelExpPow: 1.95,
+        normalSpawnSpeedMultiplier: 0.86,
         hardSpawnSpeedMultiplier: 1.32,
+        normalLateSpawnDelayMultiplier: 2.0,
         normalSpeedGrowth: 1.026,
         hardSpeedGrowth: 1.032,
 
@@ -1238,7 +1239,9 @@
             score = Number(saveData.score) || 0;
             level = Math.max(1, Number(saveData.level) || 1);
             exp = Math.max(0, Number(saveData.exp) || 0);
-            maxExp = Math.max(1, Number(saveData.maxExp) || BALANCE.initialMaxExp);
+            const recalculatedMaxExp = level <= 1 ? BALANCE.initialMaxExp : getNextMaxExp(level);
+            maxExp = Math.max(recalculatedMaxExp, Number(saveData.maxExp) || BALANCE.initialMaxExp);
+            exp = Math.min(exp, Math.max(0, maxExp - 1));
 
             player = { ...saveData.player };
             weapons = { ...saveData.weapons };
@@ -1443,9 +1446,9 @@
 
         const currentUpgrades = [
             { id: 1, icon: '🗡️', title: isDogLucky ? '공격력 (대성공!)' : '공격력', val: (isDogLucky ? 2 : 1), get desc() { return `데미지 +${this.val}`; }, apply() { weapons.damage += this.val; } },
-            { id: 2, icon: '⚡', title: isCatLucky ? '공격 속도 (대성공!)' : '공격 속도', val: (isCatLucky ? 0.8 : 0.9), get desc() { return `연사력 +${isCatLucky ? '20%' : '10%'}`; }, apply() { weapons.fireRate = Math.max(100, weapons.fireRate * this.val); } },
-            { id: 3, icon: '👟', title: isRabbitLucky ? '이동 속도 (대성공!)' : '이동 속도', val: (isRabbitLucky ? 1.2 : 0.6), get desc() { return `속도 +${this.val}`; }, apply() { player.speed += this.val; } },
-            { id: 4, icon: '❤️', title: isBearLucky ? '체력 단련 (대성공!)' : '체력 단련', val: (isBearLucky ? 50 : 20), get desc() { return `최대 HP +${this.val}`; }, apply() { player.maxHp += this.val; player.hp = Math.min(player.maxHp, player.hp + this.val); } },
+            { id: 2, icon: '⚡', title: isCatLucky ? '공격 속도 (대성공!)' : '공격 속도', val: (isCatLucky ? 0.75 : 0.85), get desc() { return `연사력 +${isCatLucky ? '25%' : '15%'}`; }, apply() { weapons.fireRate = Math.max(100, weapons.fireRate * this.val); } },
+            { id: 3, icon: '👟', title: isRabbitLucky ? '이동 속도 (대성공!)' : '이동 속도', val: (isRabbitLucky ? 1.6 : 0.8), get desc() { return `속도 +${this.val}`; }, apply() { player.speed += this.val; } },
+            { id: 4, icon: '❤️', title: isBearLucky ? '체력 단련 (대성공!)' : '체력 단련', val: (isBearLucky ? 60 : 30), get desc() { return `최대 HP +${this.val}`; }, apply() { player.maxHp += this.val; player.hp = Math.min(player.maxHp, player.hp + this.val); } },
             { id: 5, icon: '✨', title: isChickLucky ? '다중 발사 (대성공!)' : '다중 발사', val: (isChickLucky ? 2 : 1), get desc() { return `탄환 수 +${this.val} (최대 12)`; }, apply() { weapons.multiShot = Math.min(12, weapons.multiShot + this.val); } },
             { id: 6, icon: '🔄', title: isWolfLucky ? '수호의 검 (대성공!)' : '수호의 검', val: (isWolfLucky ? 2 : 1), get desc() { return `검 개수 +${this.val} / 근접 타격 강화`; }, apply() { weapons.orbitals = Math.min(10, weapons.orbitals + this.val); } },
             { id: 7, icon: '☄️', title: '관통탄', val: 1, desc: '관통 +1회 (최대 8)', apply() { weapons.pierce = Math.min(8, weapons.pierce + 1); } },
@@ -1540,7 +1543,7 @@
     }
 
     function getNextMaxExp(nextLevel) {
-        return Math.floor((BALANCE.levelExpBase + Math.pow(nextLevel, BALANCE.levelExpPow) * 1.85) * 1.02);
+        return Math.floor((BALANCE.levelExpBase + Math.pow(nextLevel, BALANCE.levelExpPow) * 3.2) * 1.10);
     }
 
     function createNeonPulse(x, y, color = '#00E5FF', radius = 70, duration = 420) {
@@ -1685,6 +1688,9 @@
         let spawnDelay = currentDifficulty === 'hard'
             ? Math.floor((level <= 5 ? 620 : Math.max(300, 980 - (level * 50))) / BALANCE.hardSpawnSpeedMultiplier)
             : Math.floor((level <= 5 ? 480 : Math.max(230, 860 - (level * 52))) / BALANCE.normalSpawnSpeedMultiplier);
+        if (currentDifficulty === 'normal' && level >= 10) {
+            spawnDelay = Math.floor(spawnDelay * BALANCE.normalLateSpawnDelayMultiplier);
+        }
         if (hardBossAlive) spawnDelay = Math.floor(spawnDelay * 1.16);
         
         if (enemyTimer > spawnDelay && enemies.length < MAX_ENEMIES) { 
