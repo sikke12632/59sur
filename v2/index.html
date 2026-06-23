@@ -963,6 +963,7 @@
         normalSpawnSpeedMultiplier: 0.86,
         hardSpawnSpeedMultiplier: 1.32,
         normalLateSpawnDelayMultiplier: 2.0,
+        normalLateEnemyHpMultiplier: 1.75,
         normalSpeedGrowth: 1.026,
         hardSpeedGrowth: 1.032,
 
@@ -1654,6 +1655,9 @@
             } else {
                 let hp = (level <= 5) ? Math.floor(Math.random() * 3) + 1 : Math.floor((Math.random() * (2 + level * 1.8)) * hellScale) + 1;
                 hp = Math.max(1, Math.floor(hp * (currentDifficulty === 'hard' ? BALANCE.hardEnemyHpScale : BALANCE.normalEnemyHpScale)));
+                if (currentDifficulty === 'normal' && level >= 10) {
+                    hp = Math.max(1, Math.floor(hp * BALANCE.normalLateEnemyHpMultiplier));
+                }
                 let baseSpeed = (currentDifficulty === 'hard' ? 0.92 : 0.90) * Math.pow(currentDifficulty === 'hard' ? BALANCE.hardSpeedGrowth : BALANCE.normalSpeedGrowth, Math.min(level, 50)); 
                 const enemyColor = COLORS[Math.floor(Math.random() * COLORS.length)];
                 enemies.push({ x, y, size: 16, shape: SHAPES[Math.floor(Math.random() * SHAPES.length)], color: enemyColor, hp, maxHp: hp, speed: baseSpeed + Math.random() * 0.4, isBoss: false, invuln: 0, spriteKey: getNormalEnemySpriteKey(enemyColor) });
@@ -2141,7 +2145,7 @@
                     createParticles(player.x, player.y, '#FFF'); 
                 }
                 
-                if (e.isBoss) { 
+                if (e.isBoss || e.isElite) { 
                     let nx, ny, d; 
                     do { nx = Math.random()*700+50; ny = Math.random()*500+50; d = Math.hypot(player.x-nx, player.y-ny); } while(d<350); 
                     e.x=nx; e.y=ny; 
