@@ -186,6 +186,7 @@
             box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.12);
         }
         #homeScreen .account-buttons button:hover { filter: brightness(1.16); }
+        #homeScreen .account-buttons .wide-account-btn { grid-column: 1 / -1; }
         #homeScreen .account-status {
             min-height: 18px;
             margin: -2px 0 7px;
@@ -522,6 +523,7 @@
                     <button id="createAccountBtn" type="button">내 아이디 만들기</button>
                     <button id="resetPasswordBtn" type="button">비밀번호 초기화</button>
                     <button id="logoutAccountBtn" type="button">로그아웃</button>
+                    <button id="changeNicknameBtn" class="wide-account-btn" type="button">닉네임 변경</button>
                 </div>
                 <div id="accountStatus" class="account-status">아이디로 로그인해주세요.</div>
                 <div class="control-select" style="margin-top:0;">
@@ -1153,7 +1155,11 @@
         const accountInput = document.getElementById('accountIdInput');
         const nicknameInput = document.getElementById('nicknameInput');
         if (accountInput) accountInput.value = currentAccountId;
-        if (nicknameInput) nicknameInput.value = currentNickname;
+        if (nicknameInput) {
+            nicknameInput.value = currentNickname;
+            nicknameInput.readOnly = true;
+            nicknameInput.title = '닉네임 변경 버튼으로 바꿔주세요.';
+        }
         updateHomeUI();
     }
 
@@ -1441,9 +1447,50 @@
         localStorage.removeItem(ACCOUNT_ID_KEY);
         localStorage.removeItem(ACCOUNT_NICK_KEY);
         const passwordInput = document.getElementById('accountPwInput');
+        const nicknameInput = document.getElementById('nicknameInput');
         if (passwordInput) passwordInput.value = '';
+        if (nicknameInput) {
+            nicknameInput.readOnly = false;
+            nicknameInput.title = '';
+        }
         setAccountStatus('로그아웃되었습니다.', '#7DF9FF');
         updateHomeUI();
+    }
+
+    async function changeProfileNickname() {
+        if (!requireLoggedInProfile()) return;
+        alert('닉네임을 바꾸면 앞으로 새 기록은 새 닉네임으로 등록됩니다.\n이미 저장된 기존 랭킹 기록의 이름은 바뀌지 않습니다.');
+        const typed = prompt('새 닉네임을 입력하세요.', currentNickname || '');
+        if (typed === null) return;
+
+        const newNickname = getCleanNickname(typed);
+        if (!newNickname) {
+            alert('닉네임은 한글, 영문, 숫자, _ 조합으로 1글자 이상 입력해주세요.');
+            return;
+        }
+
+        const oldNickname = currentNickname;
+        currentNickname = newNickname;
+        setAccountStatus('닉네임을 저장하는 중...', '#FFD700');
+        try {
+            await db.collection("users_v2").doc(currentAccountId).set({
+                accountId: currentAccountId,
+                nickname: currentNickname,
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            localStorage.setItem(ACCOUNT_NICK_KEY, currentNickname);
+            localStorage.setItem('vamp_last_nickname_v2', currentNickname);
+            const nicknameInput = document.getElementById('nicknameInput');
+            if (nicknameInput) nicknameInput.value = currentNickname;
+            updateHomeUI();
+            setAccountStatus('닉네임 변경 완료!', '#39FF14');
+            alert('닉네임 변경 완료!');
+        } catch (error) {
+            currentNickname = oldNickname;
+            console.error('닉네임 변경 실패:', error);
+            setAccountStatus('닉네임 변경 실패: Firebase 규칙을 확인해주세요.', '#FF9933');
+            alert('닉네임 변경에 실패했어요. Firebase 규칙이나 네트워크를 확인해주세요.');
+        }
     }
 
     function initGameStats() {
@@ -3713,6 +3760,7 @@
     document.getElementById('loginAccountBtn').onclick = loginProfileAccount;
     document.getElementById('resetPasswordBtn').onclick = resetProfilePassword;
     document.getElementById('logoutAccountBtn').onclick = logoutProfileAccount;
+    document.getElementById('changeNicknameBtn').onclick = changeProfileNickname;
 
     document.getElementById('startBtn').onclick = async () => { 
         if (isStartingGame || isPlaying) return;
