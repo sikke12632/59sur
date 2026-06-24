@@ -1020,12 +1020,12 @@
         meteorDamagePerUpgrade: 6,
         meteorRadius: 145,
         meteorDrops: 5,
-        laserBaseDamage: 8,
-        laserDamagePerUpgrade: 6,
-        laserWidth: 52,
-        laserWarningMs: 480,
-        laserFireMs: 260,
-        laserFadeMs: 320,
+        laserBaseDamage: 3,
+        laserDamagePerUpgrade: 2,
+        laserWidth: 34,
+        laserWarningMs: 0,
+        laserFireMs: 280,
+        laserFadeMs: 280,
         laserGaugeRequired: 210
     };
 
@@ -1418,32 +1418,28 @@
     }
 
     function createOrbitalLaserEffect() {
-        const center = enemies.length
-            ? enemies.reduce((acc, e) => ({ x: acc.x + e.x, y: acc.y + e.y }), { x: 0, y: 0 })
-            : { x: player.x, y: player.y };
-        const cx = enemies.length ? center.x / enemies.length : player.x;
-        const cy = enemies.length ? center.y / enemies.length : player.y;
-        const candidates = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4, Math.PI * 3 / 4, -Math.PI * 3 / 4];
+        const cx = player.x;
+        const cy = player.y;
         const length = Math.hypot(canvas.width, canvas.height) + 260;
-        let bestAngle = candidates[Math.floor(Math.random() * candidates.length)];
-        let bestScore = -1;
-        candidates.forEach(angle => {
-            const ux = Math.cos(angle), uy = Math.sin(angle);
-            const x1 = cx - ux * length / 2, y1 = cy - uy * length / 2;
-            const x2 = cx + ux * length / 2, y2 = cy + uy * length / 2;
-            let score = 0;
+        let baseAngle = -Math.PI / 2;
+        if (enemies.length > 0) {
+            let nearest = enemies[0], minDist = Math.hypot(player.x - enemies[0].x, player.y - enemies[0].y);
             enemies.forEach(e => {
-                if (distancePointToSegment(e.x, e.y, x1, y1, x2, y2) <= BALANCE.laserWidth * 1.35 + e.size) score += e.isBoss ? 5 : (e.isElite ? 3 : 1);
+                const d = Math.hypot(player.x - e.x, player.y - e.y);
+                if (d < minDist) { minDist = d; nearest = e; }
             });
-            if (score > bestScore) { bestScore = score; bestAngle = angle; }
+            baseAngle = Math.atan2(nearest.y - player.y, nearest.x - player.x);
+        }
+        const beams = Array.from({ length: 5 }, (_, i) => {
+            const angle = baseAngle + i * (Math.PI * 2 / 5);
+            const ux = Math.cos(angle), uy = Math.sin(angle);
+            return { x1: cx, y1: cy, x2: cx + ux * length, y2: cy + uy * length };
         });
-        const ux = Math.cos(bestAngle), uy = Math.sin(bestAngle);
         return {
             type: 'laser',
-            x1: cx - ux * length / 2,
-            y1: cy - uy * length / 2,
-            x2: cx + ux * length / 2,
-            y2: cy + uy * length / 2,
+            x: cx,
+            y: cy,
+            beams,
             timer: BALANCE.laserWarningMs + BALANCE.laserFireMs + BALANCE.laserFadeMs,
             warning: BALANCE.laserWarningMs,
             fire: BALANCE.laserFireMs,
@@ -1505,7 +1501,7 @@
             { id: 'bomb', icon: '💣', title: '오구 폭탄', desc: '설치 후 2초 뒤 크게 폭발합니다. 범위와 피해가 강화되었습니다.', apply() { selectedUlt = 'bomb'; ultMax = 200; } },
             { id: 'flame', icon: '🔥', title: '불꽃 방사', desc: '1.6초간 주변 적을 태웁니다. 범위와 피해량은 낮지만 안정적입니다.', apply() { selectedUlt = 'flame'; ultMax = BALANCE.flameGaugeRequired; } },
             { id: 'meteor', icon: '🌠', title: '메테오', desc: '무작위 적을 향해 별똥별 5발을 떨어뜨립니다. 착탄 범위가 강화되었습니다.', apply() { selectedUlt = 'meteor'; ultMax = 200; } },
-            { id: 'laser', icon: '🔷', title: '궤도 레이저', desc: '짧은 경고선 뒤 굵은 네온 레이저가 화면을 관통합니다. 직선 안의 적에게만 큰 피해를 줍니다.', apply() { selectedUlt = 'laser'; ultMax = BALANCE.laserGaugeRequired; } }
+            { id: 'laser', icon: '🔷', title: '궤도 레이저', desc: '캐릭터 중심에서 네온 레이저 5갈래가 즉시 뻗어나갑니다. 맞은 적에게만 피해를 줍니다.', apply() { selectedUlt = 'laser'; ultMax = BALANCE.laserGaugeRequired; } }
         ];
         renderModalOptions(choices);
     }
@@ -2308,8 +2304,10 @@
                     let bossHit = false;
                     let sparks = 0;
                     const hitWidth = BALANCE.laserWidth * sizeMod;
+                    const beams = Array.isArray(eff.beams) ? eff.beams : [{ x1: eff.x1, y1: eff.y1, x2: eff.x2, y2: eff.y2 }];
                     enemies.forEach(e => {
-                        if (distancePointToSegment(e.x, e.y, eff.x1, eff.y1, eff.x2, eff.y2) <= hitWidth + e.size) {
+                        const isHit = beams.some(beam => distancePointToSegment(e.x, e.y, beam.x1, beam.y1, beam.x2, beam.y2) <= hitWidth + e.size);
+                        if (isHit) {
                             const isInvincible = e.isBoss && e.patternState === 'enraged';
                             if (!isInvincible) {
                                 let dmg = BALANCE.laserBaseDamage + (ultStats.damageLevel * BALANCE.laserDamagePerUpgrade);
@@ -2326,7 +2324,7 @@
                         }
                     });
                     if (bossHit) ultFlash = Math.max(ultFlash, 0.45);
-                    createNeonPulse((eff.x1 + eff.x2) / 2, (eff.y1 + eff.y2) / 2, '#00E5FF', 130 * sizeMod, 320);
+                    createNeonPulse(eff.x || player.x, eff.y || player.y, '#00E5FF', 130 * sizeMod, 320);
                 }
                 if (eff.timer <= 0) ultEffects.splice(i, 1);
             }
@@ -2674,6 +2672,12 @@
                     Number.isFinite(Number(eff.progress));
             }
             if (eff.type === 'laser') {
+                if (Array.isArray(eff.beams)) {
+                    return Number.isFinite(Number(eff.timer)) && eff.beams.every(beam =>
+                        Number.isFinite(Number(beam.x1)) && Number.isFinite(Number(beam.y1)) &&
+                        Number.isFinite(Number(beam.x2)) && Number.isFinite(Number(beam.y2))
+                    );
+                }
                 return Number.isFinite(Number(eff.x1)) && Number.isFinite(Number(eff.y1)) &&
                     Number.isFinite(Number(eff.x2)) && Number.isFinite(Number(eff.y2)) &&
                     Number.isFinite(Number(eff.timer));
@@ -3168,48 +3172,53 @@
                 const alpha = isWarning
                     ? 0.25 + Math.sin(now / 70) * 0.14
                     : (isFade ? Math.max(0, eff.timer / eff.fade) * 0.62 : 0.86);
+                const beams = Array.isArray(eff.beams) ? eff.beams : [{ x1: eff.x1, y1: eff.y1, x2: eff.x2, y2: eff.y2 }];
                 ctx.save();
                 ctx.lineCap = 'round';
                 if (isWarning) {
                     ctx.setLineDash([18, 12]);
-                    ctx.beginPath();
-                    ctx.moveTo(eff.x1, eff.y1);
-                    ctx.lineTo(eff.x2, eff.y2);
-                    ctx.strokeStyle = `rgba(0, 229, 255, ${alpha})`;
-                    ctx.lineWidth = 3;
-                    ctx.shadowBlur = 8;
-                    ctx.shadowColor = '#00E5FF';
-                    ctx.stroke();
+                    beams.forEach(beam => {
+                        ctx.beginPath();
+                        ctx.moveTo(beam.x1, beam.y1);
+                        ctx.lineTo(beam.x2, beam.y2);
+                        ctx.strokeStyle = `rgba(0, 229, 255, ${alpha})`;
+                        ctx.lineWidth = 3;
+                        ctx.shadowBlur = 8;
+                        ctx.shadowColor = '#00E5FF';
+                        ctx.stroke();
+                    });
                     ctx.setLineDash([]);
                 } else {
-                    const grad = ctx.createLinearGradient(eff.x1, eff.y1, eff.x2, eff.y2);
-                    grad.addColorStop(0, `rgba(255, 92, 255, ${alpha * 0.55})`);
-                    grad.addColorStop(0.5, `rgba(125, 249, 255, ${alpha})`);
-                    grad.addColorStop(1, `rgba(0, 229, 255, ${alpha * 0.72})`);
-                    ctx.beginPath();
-                    ctx.moveTo(eff.x1, eff.y1);
-                    ctx.lineTo(eff.x2, eff.y2);
-                    ctx.strokeStyle = `rgba(255, 92, 255, ${alpha * 0.32})`;
-                    ctx.lineWidth = BALANCE.laserWidth * sizeMod * 2.15;
-                    ctx.shadowBlur = 14;
-                    ctx.shadowColor = '#B026FF';
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(eff.x1, eff.y1);
-                    ctx.lineTo(eff.x2, eff.y2);
-                    ctx.strokeStyle = grad;
-                    ctx.lineWidth = BALANCE.laserWidth * sizeMod * 1.22;
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = '#00E5FF';
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(eff.x1, eff.y1);
-                    ctx.lineTo(eff.x2, eff.y2);
-                    ctx.strokeStyle = `rgba(255, 255, 255, ${Math.min(1, alpha + 0.1)})`;
-                    ctx.lineWidth = Math.max(5, BALANCE.laserWidth * sizeMod * 0.22);
-                    ctx.shadowBlur = 4;
-                    ctx.shadowColor = '#FFFFFF';
-                    ctx.stroke();
+                    beams.forEach(beam => {
+                        const grad = ctx.createLinearGradient(beam.x1, beam.y1, beam.x2, beam.y2);
+                        grad.addColorStop(0, `rgba(255, 92, 255, ${alpha * 0.55})`);
+                        grad.addColorStop(0.5, `rgba(125, 249, 255, ${alpha})`);
+                        grad.addColorStop(1, `rgba(0, 229, 255, ${alpha * 0.72})`);
+                        ctx.beginPath();
+                        ctx.moveTo(beam.x1, beam.y1);
+                        ctx.lineTo(beam.x2, beam.y2);
+                        ctx.strokeStyle = `rgba(255, 92, 255, ${alpha * 0.26})`;
+                        ctx.lineWidth = BALANCE.laserWidth * sizeMod * 1.75;
+                        ctx.shadowBlur = 12;
+                        ctx.shadowColor = '#B026FF';
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(beam.x1, beam.y1);
+                        ctx.lineTo(beam.x2, beam.y2);
+                        ctx.strokeStyle = grad;
+                        ctx.lineWidth = BALANCE.laserWidth * sizeMod * 1.0;
+                        ctx.shadowBlur = 8;
+                        ctx.shadowColor = '#00E5FF';
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(beam.x1, beam.y1);
+                        ctx.lineTo(beam.x2, beam.y2);
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${Math.min(1, alpha + 0.1)})`;
+                        ctx.lineWidth = Math.max(4, BALANCE.laserWidth * sizeMod * 0.18);
+                        ctx.shadowBlur = 4;
+                        ctx.shadowColor = '#FFFFFF';
+                        ctx.stroke();
+                    });
                 }
                 ctx.restore();
             }
