@@ -154,7 +154,8 @@
             text-align: center;
             text-shadow: 0 0 8px rgba(0, 229, 255, 0.55);
         }
-        #homeScreen input[type="text"] {
+        #homeScreen input[type="text"],
+        #homeScreen input[type="password"] {
             width: 100%;
             box-sizing: border-box;
             margin: 0 0 8px;
@@ -166,7 +167,33 @@
             font-size: 17px;
             box-shadow: 0 0 12px rgba(0, 229, 255, 0.26), inset 0 0 12px rgba(0, 229, 255, 0.14);
         }
-        #homeScreen input[type="text"]::placeholder { color: rgba(210, 245, 255, 0.72); }
+        #homeScreen input[type="text"]::placeholder,
+        #homeScreen input[type="password"]::placeholder { color: rgba(210, 245, 255, 0.72); }
+        #homeScreen .account-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        #homeScreen .account-buttons button {
+            min-height: 31px;
+            border: 1px solid rgba(0, 229, 255, 0.75);
+            background: rgba(4, 18, 44, 0.78);
+            color: #fff;
+            font-size: 13px;
+            font-family: 'Jua', sans-serif;
+            cursor: pointer;
+            box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.12);
+        }
+        #homeScreen .account-buttons button:hover { filter: brightness(1.16); }
+        #homeScreen .account-status {
+            min-height: 18px;
+            margin: -2px 0 7px;
+            color: #7DF9FF;
+            font-size: 12px;
+            text-align: center;
+            line-height: 1.25;
+        }
         #homeScreen .control-select {
             width: 100%;
             box-sizing: border-box;
@@ -486,8 +513,17 @@
             </div>
 
             <div class="home-panel">
-                <div class="home-note" style="color:#aaa; font-size:14px; margin-bottom:8px;">닉네임을 입력하면 자동 저장됩니다.</div>
-                <input type="text" id="nicknameInput" placeholder="닉네임(아이디) 입력" maxlength="8">
+                <div class="home-note" style="color:#aaa; font-size:14px; margin-bottom:8px;">내 아이디로 로그인하면 캐릭터가 클라우드에 저장됩니다.</div>
+                <input type="text" id="accountIdInput" placeholder="아이디" maxlength="16" autocomplete="username">
+                <input type="password" id="accountPwInput" placeholder="비밀번호" maxlength="20" autocomplete="current-password">
+                <input type="text" id="nicknameInput" placeholder="게임 닉네임" maxlength="8">
+                <div class="account-buttons">
+                    <button id="loginAccountBtn" type="button">로그인</button>
+                    <button id="createAccountBtn" type="button">내 아이디 만들기</button>
+                    <button id="resetPasswordBtn" type="button">비밀번호 초기화</button>
+                    <button id="logoutAccountBtn" type="button">로그아웃</button>
+                </div>
+                <div id="accountStatus" class="account-status">아이디로 로그인해주세요.</div>
                 <div class="control-select" style="margin-top:0;">
                     <label><input type="radio" name="controlMode" value="keyboard" checked> <span>⌨️ 키보드</span></label>
                     <label><input type="radio" name="controlMode" value="mouse"> <span>🖱️ 마우스</span></label>
@@ -559,15 +595,20 @@
     let unlockedChars = { 'basic': 1 };
     let equippedCharId = 'basic';
     let currentNickname = ""; 
+    let currentAccountId = "";
+    let currentAccountLoggedIn = false;
     
     let leaderboardsNormal = []; 
     let leaderboardsHard = []; 
     let leaderboardErrors = { normal: null, hard: null }; 
 
+    const ACCOUNT_ID_KEY = 'ogu_profile_account_id_v2';
+    const ACCOUNT_NICK_KEY = 'ogu_profile_nickname_v2';
     const savedNickname = localStorage.getItem('vamp_last_nickname_v2');
-    if (savedNickname) {
-        document.getElementById('nicknameInput').value = savedNickname;
-    }
+    const savedAccountId = localStorage.getItem(ACCOUNT_ID_KEY) || '';
+    const savedAccountNickname = localStorage.getItem(ACCOUNT_NICK_KEY) || savedNickname || '';
+    if (savedAccountId) document.getElementById('accountIdInput').value = savedAccountId;
+    if (savedAccountNickname) document.getElementById('nicknameInput').value = savedAccountNickname;
 
     const CHARACTERS = [
         { id: 'basic', icon: '😊', name: '근본 스마일', desc: '기초 지급 캐릭터' },
@@ -1037,10 +1078,97 @@
         return String(raw || '').normalize('NFC').trim().replace(/[^\p{Script=Hangul}0-9a-zA-Z_]/gu, '').slice(0, 8);
     }
 
+    function getCleanAccountId(raw) {
+        return String(raw || '').normalize('NFC').trim().replace(/[^\p{Script=Hangul}0-9a-zA-Z_-]/gu, '').slice(0, 16);
+    }
+
+    function getCleanAccountPassword(raw) {
+        return String(raw || '').trim().replace(/\s/g, '').slice(0, 20);
+    }
+
+    function getTeacherResetCode() {
+        return [107, 101, 109, 111, 109, 111, 48, 54, 49, 54]
+            .map(code => String.fromCharCode(code))
+            .join('');
+    }
+
+    function toBase64Safe(value) {
+        return btoa(unescape(encodeURIComponent(String(value))));
+    }
+
+    function encodeProfilePassword(password) {
+        const salt = ['v2', 'ogu', 'class'].reverse().join(':');
+        return toBase64Safe(Array.from(password).reverse().join('') + ':' + salt);
+    }
+
+    function verifyProfilePassword(data, password) {
+        if (!data || !password) return false;
+        const encoded = encodeProfilePassword(password);
+        return data.passwordHash === encoded || data.password === password || data.password === encoded;
+    }
+
+    function getAccountInputs() {
+        const accountInput = document.getElementById('accountIdInput');
+        const passwordInput = document.getElementById('accountPwInput');
+        const nicknameInput = document.getElementById('nicknameInput');
+        const accountId = getCleanAccountId(accountInput ? accountInput.value : '');
+        const password = getCleanAccountPassword(passwordInput ? passwordInput.value : '');
+        const nickname = getCleanNickname(nicknameInput ? nicknameInput.value : '');
+        if (accountInput && accountInput.value !== accountId) accountInput.value = accountId;
+        if (passwordInput && passwordInput.value !== password) passwordInput.value = password;
+        if (nicknameInput && nicknameInput.value !== nickname) nicknameInput.value = nickname;
+        return { accountId, password, nickname };
+    }
+
+    function setAccountStatus(message, color = '#7DF9FF') {
+        const status = document.getElementById('accountStatus');
+        if (!status) return;
+        status.textContent = message;
+        status.style.color = color;
+    }
+
+    function getDefaultProfileData(accountId, nickname, password) {
+        return {
+            accountId,
+            nickname,
+            passwordHash: encodeProfilePassword(password),
+            fragments: { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 },
+            chars: { 'basic': 1 },
+            equipped: 'basic',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        };
+    }
+
+    function applyProfileData(accountId, data = {}) {
+        currentAccountId = accountId;
+        currentNickname = getCleanNickname(data.nickname || data.name || accountId) || accountId;
+        currentAccountLoggedIn = true;
+        charFragments = data.fragments || { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 };
+        unlockedChars = data.chars || { 'basic': 1 };
+        equippedCharId = data.equipped || 'basic';
+        localStorage.setItem(ACCOUNT_ID_KEY, currentAccountId);
+        localStorage.setItem(ACCOUNT_NICK_KEY, currentNickname);
+        localStorage.setItem('vamp_last_nickname_v2', currentNickname);
+        const accountInput = document.getElementById('accountIdInput');
+        const nicknameInput = document.getElementById('nicknameInput');
+        if (accountInput) accountInput.value = currentAccountId;
+        if (nicknameInput) nicknameInput.value = currentNickname;
+        updateHomeUI();
+    }
+
+    function requireLoggedInProfile() {
+        if (currentAccountLoggedIn && currentAccountId) return true;
+        setAccountStatus('먼저 로그인하거나 내 아이디를 만들어주세요.', '#FF9933');
+        alert('먼저 로그인하거나 내 아이디를 만들어주세요.');
+        return false;
+    }
+
     function commitNicknameInput(input) {
         const cleaned = getCleanNickname(input.value);
         if (input.value !== cleaned) input.value = cleaned;
         localStorage.setItem('vamp_last_nickname_v2', cleaned);
+        if (currentAccountLoggedIn) currentNickname = cleaned;
         updateHomeUI();
     }
 
@@ -1156,34 +1284,166 @@
         radio.addEventListener('change', updateHomeUI);
     });
 
-    async function syncUserData(nickname) {
-        if (!nickname) return;
+    async function syncUserData(accountId = currentAccountId) {
+        if (!accountId) return;
         try {
-            const doc = await db.collection("users_v2").doc(nickname).get();
+            const doc = await db.collection("users_v2").doc(accountId).get();
             if (doc.exists) {
                 const data = doc.data();
-                charFragments = data.fragments || { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 };
-                unlockedChars = data.chars || { 'basic': 1 };
-                equippedCharId = data.equipped || 'basic';
+                applyProfileData(accountId, data);
             } else {
                 charFragments = { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 };
                 unlockedChars = { 'basic': 1 };
                 equippedCharId = 'basic';
-                saveUserData(nickname); 
+                saveUserData(accountId); 
             }
         } catch (e) {
             console.error("데이터 불러오기 실패:", e);
         }
     }
 
-    function saveUserData(nickname = currentNickname) {
-        if (!nickname) return;
-        db.collection("users_v2").doc(nickname).set({
+    function saveUserData(accountId = currentAccountId || currentNickname) {
+        if (!accountId) return;
+        return db.collection("users_v2").doc(accountId).set({
+            accountId,
+            nickname: currentNickname || accountId,
             fragments: charFragments,
             chars: unlockedChars,
             equipped: equippedCharId,
             lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true }).catch(err => console.error("저장 실패:", err));
+    }
+
+    async function createProfileAccount() {
+        const { accountId, password, nickname } = getAccountInputs();
+        if (!accountId || !password || !nickname) return alert('아이디, 비밀번호, 닉네임을 모두 입력해주세요.');
+        if (password.length < 3) return alert('비밀번호는 3글자 이상으로 정해주세요.');
+
+        const btn = document.getElementById('createAccountBtn');
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = '만드는 중...';
+        setAccountStatus('아이디를 만드는 중...', '#FFD700');
+        try {
+            const ref = db.collection("users_v2").doc(accountId);
+            const doc = await ref.get();
+            if (doc.exists) {
+                const data = doc.data() || {};
+                if (data.passwordHash || data.password) {
+                    setAccountStatus('이미 있는 아이디입니다.', '#FF9933');
+                    alert('이미 있는 아이디입니다. 로그인하거나 다른 아이디를 써주세요.');
+                    return;
+                }
+                await ref.set({
+                    accountId,
+                    nickname,
+                    passwordHash: encodeProfilePassword(password),
+                    fragments: data.fragments || { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 },
+                    chars: data.chars || { 'basic': 1 },
+                    equipped: data.equipped || 'basic',
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                applyProfileData(accountId, { ...data, nickname, passwordHash: encodeProfilePassword(password) });
+            } else {
+                const profile = getDefaultProfileData(accountId, nickname, password);
+                await ref.set(profile, { merge: true });
+                applyProfileData(accountId, profile);
+            }
+            setAccountStatus(`${currentNickname}님 아이디가 준비됐어요.`, '#39FF14');
+            document.getElementById('accountPwInput').value = '';
+        } catch (error) {
+            console.error('계정 생성 실패:', error);
+            setAccountStatus('계정 생성 실패: Firebase 규칙을 확인해주세요.', '#FF9933');
+            alert('계정 생성에 실패했어요. Firebase 규칙이나 네트워크를 확인해주세요.');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    }
+
+    async function loginProfileAccount() {
+        const { accountId, password } = getAccountInputs();
+        if (!accountId || !password) return alert('아이디와 비밀번호를 입력해주세요.');
+
+        const btn = document.getElementById('loginAccountBtn');
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = '확인 중...';
+        setAccountStatus('로그인 확인 중...', '#FFD700');
+        try {
+            const doc = await db.collection("users_v2").doc(accountId).get();
+            if (!doc.exists) {
+                setAccountStatus('없는 아이디입니다.', '#FF9933');
+                alert('없는 아이디입니다. 먼저 내 아이디 만들기를 눌러주세요.');
+                return;
+            }
+            const data = doc.data() || {};
+            if (!verifyProfilePassword(data, password)) {
+                setAccountStatus('비밀번호가 맞지 않습니다.', '#FF9933');
+                alert('비밀번호가 맞지 않습니다.');
+                return;
+            }
+            applyProfileData(accountId, data);
+            setAccountStatus(`${currentNickname}님으로 로그인됨`, '#39FF14');
+            document.getElementById('accountPwInput').value = '';
+        } catch (error) {
+            console.error('로그인 실패:', error);
+            setAccountStatus('로그인 실패: Firebase 규칙을 확인해주세요.', '#FF9933');
+            alert('로그인에 실패했어요. Firebase 규칙이나 네트워크를 확인해주세요.');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    }
+
+    async function resetProfilePassword() {
+        const accountId = getCleanAccountId(prompt('비밀번호를 바꿀 아이디를 입력하세요.') || '');
+        if (!accountId) return;
+        const teacherCode = String(prompt('관리자 암호를 입력하세요.') || '').trim();
+        if (teacherCode !== getTeacherResetCode()) {
+            alert('관리자 암호가 맞지 않습니다.');
+            return;
+        }
+        const newPassword = getCleanAccountPassword(prompt('새 비밀번호를 입력하세요. 3글자 이상이면 됩니다.') || '');
+        if (newPassword.length < 3) return alert('새 비밀번호는 3글자 이상으로 정해주세요.');
+
+        setAccountStatus('비밀번호를 초기화하는 중...', '#FFD700');
+        try {
+            const ref = db.collection("users_v2").doc(accountId);
+            const doc = await ref.get();
+            if (!doc.exists) {
+                setAccountStatus('없는 아이디입니다.', '#FF9933');
+                alert('없는 아이디입니다.');
+                return;
+            }
+            await ref.set({
+                passwordHash: encodeProfilePassword(newPassword),
+                password: firebase.firestore.FieldValue.delete(),
+                lastPasswordResetAt: firebase.firestore.FieldValue.serverTimestamp(),
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            setAccountStatus('비밀번호가 바뀌었습니다.', '#39FF14');
+            alert('비밀번호가 바뀌었습니다. 새 비밀번호로 로그인해주세요.');
+        } catch (error) {
+            console.error('비밀번호 초기화 실패:', error);
+            setAccountStatus('초기화 실패: Firebase 규칙을 확인해주세요.', '#FF9933');
+            alert('비밀번호 초기화에 실패했어요. Firebase 규칙이나 네트워크를 확인해주세요.');
+        }
+    }
+
+    function logoutProfileAccount() {
+        currentAccountId = '';
+        currentAccountLoggedIn = false;
+        currentNickname = '';
+        charFragments = { dog: 0, cat: 0, rabbit: 0, bear: 0, chick: 0, wolf: 0 };
+        unlockedChars = { 'basic': 1 };
+        equippedCharId = 'basic';
+        localStorage.removeItem(ACCOUNT_ID_KEY);
+        localStorage.removeItem(ACCOUNT_NICK_KEY);
+        const passwordInput = document.getElementById('accountPwInput');
+        if (passwordInput) passwordInput.value = '';
+        setAccountStatus('로그아웃되었습니다.', '#7DF9FF');
+        updateHomeUI();
     }
 
     function initGameStats() {
@@ -1231,6 +1491,7 @@
         const saveData = {
             version: ACTIVE_GAME_SAVE_VERSION,
             savedAt: Date.now(),
+            currentAccountId,
             currentNickname,
             currentControlType,
             currentDifficulty,
@@ -1300,6 +1561,8 @@
 
         try {
             currentNickname = String(saveData.currentNickname || '');
+            currentAccountId = getCleanAccountId(saveData.currentAccountId || currentNickname);
+            currentAccountLoggedIn = !!currentAccountId;
             currentControlType = saveData.currentControlType === 'mouse' ? 'mouse' : 'keyboard';
             currentDifficulty = saveData.currentDifficulty === 'normal' ? 'normal' : 'hard';
             equippedCharId = CHARACTERS.some(c => c.id === saveData.equippedCharId) ? saveData.equippedCharId : 'basic';
@@ -1350,6 +1613,8 @@
 
             Object.keys(keys).forEach(key => { keys[key] = false; });
             const nicknameInput = document.getElementById('nicknameInput');
+            const accountInput = document.getElementById('accountIdInput');
+            if (accountInput && currentAccountId) accountInput.value = currentAccountId;
             if (nicknameInput && currentNickname) nicknameInput.value = currentNickname;
             const controlRadio = document.querySelector(`input[name="controlMode"][value="${currentControlType}"]`);
             if (controlRadio) controlRadio.checked = true;
@@ -3353,7 +3618,7 @@
                 mode: currentDifficulty,
                 timestamp: firebase.firestore.FieldValue.serverTimestamp()
             };
-            const scoreRef = db.collection(collectionName).doc(currentNickname);
+            const scoreRef = db.collection(collectionName).doc(currentAccountId || currentNickname);
             scoreRef.get().then((doc) => {
                 if (!doc.exists || (Number(doc.data().score) || 0) < scoreData.score) {
                     return scoreRef.set(scoreData, { merge: true });
@@ -3373,6 +3638,17 @@
     function updateHomeUI() {
         const isAdmin = document.getElementById('nicknameInput').value === '식이쌤관리자';
         const selectedDiff = document.querySelector('input[name="difficultyMode"]:checked').value;
+        const status = document.getElementById('accountStatus');
+        if (status) {
+            if (currentAccountLoggedIn && currentAccountId) {
+                status.textContent = `${currentNickname || currentAccountId}님으로 로그인됨`;
+                status.style.color = '#39FF14';
+            } else {
+                const typedId = getCleanAccountId(document.getElementById('accountIdInput')?.value || '');
+                status.textContent = typedId ? '비밀번호를 입력하고 로그인해주세요.' : '아이디로 로그인해주세요.';
+                status.style.color = '#7DF9FF';
+            }
+        }
         document.getElementById('homeLbTitle').innerText = selectedDiff === 'hard' ? '🏆 2.0 하드 모드 명예의 전당 (Top 5) 🏆' : '🏆 2.0 노말 모드 명예의 전당 (Top 5) 🏆';
         document.getElementById('fullLbTitle').innerText = selectedDiff === 'hard' ? '🏆 2.0 하드 모드 전체 랭킹 🏆' : '🏆 2.0 노말 모드 전체 랭킹 🏆';
         
@@ -3427,13 +3703,21 @@
         commitNicknameInput(e.target);
     });
 
+    const accountIdInputEl = document.getElementById('accountIdInput');
+    accountIdInputEl.addEventListener('input', (e) => {
+        const cleaned = getCleanAccountId(e.target.value);
+        if (e.target.value !== cleaned) e.target.value = cleaned;
+    });
+
+    document.getElementById('createAccountBtn').onclick = createProfileAccount;
+    document.getElementById('loginAccountBtn').onclick = loginProfileAccount;
+    document.getElementById('resetPasswordBtn').onclick = resetProfilePassword;
+    document.getElementById('logoutAccountBtn').onclick = logoutProfileAccount;
+
     document.getElementById('startBtn').onclick = async () => { 
         if (isStartingGame || isPlaying) return;
-        let nick = getCleanNickname(document.getElementById('nicknameInput').value);
-        if (!nick) return alert("❌ 닉네임(아이디)을 먼저 입력해주세요!\n데이터가 클라우드에 자동 저장됩니다.");
-        
-        currentNickname = nick;
-        if (currentNickname === '식이쌤관리자') currentNickname = "관리자";
+        if (!requireLoggedInProfile()) return;
+        currentNickname = getCleanNickname(document.getElementById('nicknameInput').value) || currentNickname || currentAccountId;
 
         const btn = document.getElementById('startBtn');
         const originalText = btn.innerText;
@@ -3441,7 +3725,8 @@
         btn.disabled = true;
         btn.innerText = "불러오는 중...";
         try {
-            await syncUserData(currentNickname);
+            await saveUserData(currentAccountId);
+            await syncUserData(currentAccountId);
             
             const selectedControl = document.querySelector('input[name="controlMode"]:checked');
             if (selectedControl) currentControlType = selectedControl.value;
@@ -3469,15 +3754,13 @@
     };
     
     document.getElementById('openStoreBtn').onclick = async () => { 
-        let nick = getCleanNickname(document.getElementById('nicknameInput').value);
-        if (!nick) return alert("❌ 닉네임(아이디)을 먼저 입력해주세요!\n데이터가 클라우드에 자동 저장됩니다.");
-        
-        currentNickname = nick;
-        if (currentNickname === '식이쌤관리자') currentNickname = "관리자";
+        if (!requireLoggedInProfile()) return;
+        currentNickname = getCleanNickname(document.getElementById('nicknameInput').value) || currentNickname || currentAccountId;
 
         const btn = document.getElementById('openStoreBtn');
         btn.innerText = "불러오는 중...";
-        await syncUserData(currentNickname);
+        await saveUserData(currentAccountId);
+        await syncUserData(currentAccountId);
         btn.innerText = "캐릭터 상점";
 
         screens.home.style.display = 'none'; 
