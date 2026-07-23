@@ -24,9 +24,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: modular-arena
 
     steps:
       - name: Checkout
@@ -46,12 +43,23 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        working-directory: modular-arena
 
       - name: Run unit tests
         run: pnpm test
+        working-directory: modular-arena
 
       - name: Build PWA
         run: pnpm build
+        working-directory: modular-arena
+
+      - name: Assemble Pages artifact
+        shell: bash
+        run: |
+          mkdir -p pages-artifact/modular-arena
+          cp index.html pages-artifact/index.html
+          cp -R v2 pages-artifact/v2
+          cp -R modular-arena/dist/. pages-artifact/modular-arena/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -59,7 +67,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: modular-arena/dist
+          path: pages-artifact
 
       - name: Deploy to GitHub Pages
         id: deployment
